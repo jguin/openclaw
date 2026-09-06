@@ -127,6 +127,7 @@ type StartPluginServicesParams = {
   startupTrace?: NonNullable<OpenClawPluginServiceContext["startupTrace"]>;
   broadcastPluginEvent?: GatewayPluginEventBroadcastFn;
   getCronService?: () => PluginServiceCronHost | null | undefined;
+  observeProviderUsage?: ObserveProviderUsage;
   oneShotStopTimeouts?: { eventDrainMs: number; serviceStopMs: number };
   previous?: PluginServicesHandle | null;
 } & (
@@ -194,6 +195,7 @@ async function startPreparedPluginServices({
   startupTrace,
   broadcastPluginEvent,
   getCronService,
+  observeProviderUsage,
   oneShotStopTimeouts,
   throwOnStartError,
   owner,
@@ -510,6 +512,7 @@ async function startPreparedPluginServices({
     const isDiagnosticsExporter =
       entry.pluginId === id && (id === "diagnostics-otel" || id === "diagnostics-prometheus");
     const isOtelExporter = isDiagnosticsExporter && entry.id === "diagnostics-otel";
+    const isPrometheusExporter = isDiagnosticsExporter && entry.id === "diagnostics-prometheus";
     const grantsInternalDiagnostics =
       isDiagnosticsExporter &&
       (entry.origin === "bundled" || entry.trustedOfficialInstall === true);
@@ -546,6 +549,22 @@ async function startPreparedPluginServices({
                 recordDiagnosticExporterHealth(entry.id, update);
               }
             },
+            ...(isPrometheusExporter && observeProviderUsage
+              ? {
+                  observeProviderUsage: async (listener: ProviderUsageMetricsListener) => {
+                    lease.assertActive("provider usage observer");
+                    const release = await observeProviderUsage({
+                      isActive: lease.isActive,
+                      listener: (snapshot) => {
+                        if (lease.isActive()) {
+                          listener(snapshot);
+                        }
+                      },
+                    });
+                    return lease.retain(release);
+                  },
+                }
+              : {}),
           }
         : undefined;
 
