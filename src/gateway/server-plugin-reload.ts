@@ -44,6 +44,7 @@ import {
   prepareClientPluginNodeCapabilities,
   reconcileClientPluginNodeCapabilities,
 } from "./plugin-node-capability.js";
+import { observeGatewayProviderUsageMetrics } from "./provider-usage-metrics-observer.js";
 import type { prepareGatewayLifecycle } from "./server-lifecycle.js";
 import type { prepareGatewayPluginLoad } from "./server-plugin-bootstrap.js";
 import {
@@ -427,6 +428,7 @@ export async function reloadGatewayPlugins(
         workspaceDir: pluginWorkspaceDir,
         broadcastPluginEvent,
         getCronService: kernel.getCronService,
+        observeProviderUsage: observeGatewayProviderUsageMetrics,
         previous: previousServices,
         onHandle: (handle) => {
           candidateServices = handle;
@@ -610,6 +612,7 @@ export async function reloadGatewayPlugins(
               workspaceDir: pluginWorkspaceDir,
               broadcastPluginEvent,
               getCronService: kernel.getCronService,
+              observeProviderUsage: observeGatewayProviderUsageMetrics,
               previous: kernel.pluginRuntimeGeneration.currentServices(),
               onHandle: (handle) => {
                 kernel.pluginRuntimeGeneration.publishServices(
