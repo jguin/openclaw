@@ -34,6 +34,7 @@ import {
   waitForGatewayRestartFenceSettlement,
 } from "../process/gateway-work-admission.js";
 import { resolveGatewayStartupPluginActivationConfig } from "./plugin-activation-runtime-config.js";
+import { observeGatewayProviderUsageMetrics } from "./provider-usage-metrics-observer.js";
 import {
   indexPluginNodeCapabilitySurfaces,
   prepareClientPluginNodeCapabilities,
@@ -363,6 +364,7 @@ export async function reloadGatewayPlugins(
         workspaceDir: pluginWorkspaceDir,
         broadcastPluginEvent,
         getCronService: kernel.getCronService,
+        observeProviderUsage: observeGatewayProviderUsageMetrics,
         previous: previousServices,
         onHandle: (handle) => {
           candidateServices = handle;
@@ -574,6 +576,7 @@ export async function reloadGatewayPlugins(
                   workspaceDir: pluginWorkspaceDir,
                   broadcastPluginEvent,
                   getCronService: kernel.getCronService,
+                  observeProviderUsage: observeGatewayProviderUsageMetrics,
                   previous: kernel.pluginRuntimeGeneration.currentServices(),
                   onHandle: (handle) => {
                     recoveredServices = handle;

@@ -127,6 +127,7 @@ type StartPluginServicesParams = {
   startupTrace?: NonNullable<OpenClawPluginServiceContext["startupTrace"]>;
   broadcastPluginEvent?: GatewayPluginEventBroadcastFn;
   getCronService?: () => PluginServiceCronHost | null | undefined;
+  observeProviderUsage?: ObserveProviderUsage;
   oneShotStopTimeouts?: { eventDrainMs: number; serviceStopMs: number };
   previous?: PluginServicesHandle | null;
 } & (
@@ -187,6 +188,7 @@ export function startPluginServices(
     startupTrace: params.startupTrace,
     broadcastPluginEvent: params.broadcastPluginEvent,
     getCronService: params.getCronService,
+    observeProviderUsage: params.observeProviderUsage,
     oneShotStopTimeouts: params.oneShotStopTimeouts,
     throwOnStartError: params.throwOnStartError,
     preparedOwner,
@@ -201,6 +203,7 @@ async function startPreparedPluginServices({
   startupTrace,
   broadcastPluginEvent,
   getCronService,
+  observeProviderUsage,
   oneShotStopTimeouts,
   throwOnStartError,
   preparedOwner,
@@ -212,6 +215,7 @@ async function startPreparedPluginServices({
   startupTrace?: NonNullable<OpenClawPluginServiceContext["startupTrace"]>;
   broadcastPluginEvent?: GatewayPluginEventBroadcastFn;
   getCronService?: () => PluginServiceCronHost | null | undefined;
+  observeProviderUsage?: ObserveProviderUsage;
   oneShotStopTimeouts?: { eventDrainMs: number; serviceStopMs: number };
   throwOnStartError?: boolean;
   preparedOwner: { ownedServices: OwnedPluginService[]; owner: PluginServicesOwner };
@@ -526,6 +530,7 @@ async function startPreparedPluginServices({
       entry?.pluginId === entry?.id &&
       (entry?.id === "diagnostics-otel" || entry?.id === "diagnostics-prometheus");
     const isOtelExporter = isDiagnosticsExporter && entry.id === "diagnostics-otel";
+    const isPrometheusExporter = isDiagnosticsExporter && entry.id === "diagnostics-prometheus";
     const grantsInternalDiagnostics =
       isDiagnosticsExporter &&
       (entry?.origin === "bundled" || entry?.trustedOfficialInstall === true);
@@ -562,6 +567,22 @@ async function startPreparedPluginServices({
                 recordDiagnosticExporterHealth(entry.id, update);
               }
             },
+            ...(isPrometheusExporter && observeProviderUsage
+              ? {
+                  observeProviderUsage: async (listener: ProviderUsageMetricsListener) => {
+                    lease.assertActive("provider usage observer");
+                    const release = await observeProviderUsage({
+                      isActive: lease.isActive,
+                      listener: (snapshot) => {
+                        if (lease.isActive()) {
+                          listener(snapshot);
+                        }
+                      },
+                    });
+                    return lease.retain(release);
+                  },
+                }
+              : {}),
           }
         : undefined;
 
