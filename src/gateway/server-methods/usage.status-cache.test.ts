@@ -286,10 +286,6 @@ describe("usage.status provider usage cache", () => {
     );
     expect(mocks.loadProviderUsageSummary).toHaveBeenCalledTimes(2);
   });
-<<<<<<< HEAD
-  it("shares the credential-bound snapshot and invalidates it on rotation", async () => {
-=======
-
   it("observes sanitized cache-owned allowance metrics and retains them across timeouts", async () => {
     await runUsageStatus();
     now = 61_000;
@@ -467,6 +463,24 @@ describe("usage.status provider usage cache", () => {
     }
   });
 
+  it("does not schedule provider requests after the observer is released", async () => {
+    vi.useFakeTimers();
+    const release = observeProviderUsageMetrics({
+      getConfig: () => config,
+      listener: () => {},
+      refreshIntervalMs: 1_000,
+    });
+    try {
+      await vi.waitFor(() => expect(mocks.loadProviderUsageSummary).toHaveBeenCalledOnce());
+      release();
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(mocks.loadProviderUsageSummary).toHaveBeenCalledOnce();
+    } finally {
+      release();
+      vi.useRealTimers();
+    }
+  });
+
   it("invalidates cached usage when the runtime config changes", async () => {
     const configFor = (baseUrl: string) =>
       ({ ...config, models: { providers: { openai: { baseUrl, models: [] } } } }) as OpenClawConfig;
@@ -484,8 +498,7 @@ describe("usage.status provider usage cache", () => {
     await vi.waitFor(() => expect(mocks.loadProviderUsageSummary).toHaveBeenCalledTimes(2));
   });
 
-  it("shares the raw snapshot with models.authStatus and invalidates on credential rotation", async () => {
->>>>>>> 578542c297 (feat(prometheus): expose provider usage windows)
+  it("shares the credential-bound snapshot with models.authStatus and invalidates it on rotation", async () => {
     await runUsageStatus();
     const usage = readProviderUsageStaleWhileRevalidate({
       ...getProviderUsageRuntimeSnapshot({ config }),
