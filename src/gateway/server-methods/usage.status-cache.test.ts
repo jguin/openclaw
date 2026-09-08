@@ -286,10 +286,6 @@ describe("usage.status provider usage cache", () => {
     );
     expect(mocks.loadProviderUsageSummary).toHaveBeenCalledTimes(2);
   });
-<<<<<<< HEAD
-  it("shares the credential-bound snapshot and invalidates it on rotation", async () => {
-=======
-
   it("observes sanitized cache-owned allowance metrics and retains them across timeouts", async () => {
     await runUsageStatus();
     now = 61_000;
@@ -310,7 +306,7 @@ describe("usage.status provider usage cache", () => {
       Parameters<typeof observeProviderUsageMetrics>[0]["listener"]
     >[0][] = [];
     const release = observeProviderUsageMetrics({
-      config,
+      getConfig: () => config,
       listener: (snapshot) => snapshots.push(snapshot),
       refreshIntervalMs: 3_600_000,
     });
@@ -340,7 +336,7 @@ describe("usage.status provider usage cache", () => {
       Parameters<typeof observeProviderUsageMetrics>[0]["listener"]
     >[0][] = [];
     const release = observeProviderUsageMetrics({
-      config,
+      getConfig: () => config,
       listener: (snapshot) => snapshots.push(snapshot),
       refreshIntervalMs: 3_600_000,
     });
@@ -366,7 +362,7 @@ describe("usage.status provider usage cache", () => {
       Parameters<typeof observeProviderUsageMetrics>[0]["listener"]
     >[0][] = [];
     const release = observeProviderUsageMetrics({
-      config,
+      getConfig: () => config,
       listener: (snapshot) => snapshots.push(snapshot),
       refreshIntervalMs: 3_600_000,
     });
@@ -391,6 +387,82 @@ describe("usage.status provider usage cache", () => {
     }
   });
 
+  it("rejects metric publication from a superseded refresh generation", async () => {
+    const stale = createDeferredCore<UsageSummary>();
+    const current: UsageSummary = {
+      updatedAt: 2_000,
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          windows: [{ label: "5h", usedPercent: 20 }],
+        },
+      ],
+    };
+    mocks.loadProviderUsageSummary
+      .mockImplementationOnce(() => stale.promise)
+      .mockResolvedValueOnce(current);
+    const snapshots: Parameters<
+      Parameters<typeof observeProviderUsageMetrics>[0]["listener"]
+    >[0][] = [];
+    const release = observeProviderUsageMetrics({
+      getConfig: () => config,
+      listener: (snapshot) => snapshots.push(snapshot),
+      refreshIntervalMs: 3_600_000,
+    });
+    try {
+      await vi.waitFor(() => expect(mocks.loadProviderUsageSummary).toHaveBeenCalledTimes(1));
+      clearModelAuthStatusUsageCache();
+      await expect(runCapableUsageStatus()).resolves.toMatchObject({ refreshing: true });
+      await vi.waitFor(() => {
+        expect(snapshots.at(-1)?.providers[0]?.windows).toEqual([{ window: "5h", usedRatio: 0.2 }]);
+      });
+
+      stale.resolve({
+        updatedAt: 1_000,
+        providers: [
+          {
+            provider: "openai",
+            displayName: "OpenAI",
+            windows: [{ label: "5h", usedPercent: 90 }],
+          },
+        ],
+      });
+      await stale.promise;
+      await Promise.resolve();
+      expect(snapshots.at(-1)?.providers[0]?.windows).toEqual([{ window: "5h", usedRatio: 0.2 }]);
+    } finally {
+      release();
+      stale.resolve(current);
+    }
+  });
+
+  it("resolves current runtime configuration for each observer refresh", async () => {
+    const nextConfig = {
+      ...config,
+      models: { providers: { openai: { baseUrl: "https://next.example/v1", models: [] } } },
+    } as OpenClawConfig;
+    let currentConfig = config;
+    const release = observeProviderUsageMetrics({
+      getConfig: () => currentConfig,
+      listener: () => {},
+      refreshIntervalMs: 1,
+    });
+    try {
+      await vi.waitFor(() => expect(mocks.loadProviderUsageSummary).toHaveBeenCalledTimes(1));
+      currentConfig = nextConfig;
+      await vi.waitFor(() => {
+        expect(
+          mocks.loadProviderUsageSummary.mock.calls.some(([options]) =>
+            Object.is(options.config, nextConfig),
+          ),
+        ).toBe(true);
+      });
+    } finally {
+      release();
+    }
+  });
+
   it("invalidates cached usage when the runtime config changes", async () => {
     const configFor = (baseUrl: string) =>
       ({ ...config, models: { providers: { openai: { baseUrl, models: [] } } } }) as OpenClawConfig;
@@ -409,7 +481,6 @@ describe("usage.status provider usage cache", () => {
   });
 
   it("shares the raw snapshot with models.authStatus and invalidates on credential rotation", async () => {
->>>>>>> cafba1694a (feat(prometheus): expose provider usage windows)
     await runUsageStatus();
     const usage = readProviderUsageStaleWhileRevalidate({
       ...getProviderUsageRuntimeSnapshot({ config }),
