@@ -66,7 +66,7 @@ export function createMetricsHarness(
     internalDiagnostics,
   };
   const start = () => exporter.service.start(context);
-  start();
+  void start();
   return {
     handler: exporter.handler,
     record(event: EventInput, metadata: DiagnosticEventMetadata = trusted) {
