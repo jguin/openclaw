@@ -184,23 +184,9 @@ export function startPluginServices({
   ...params
 }: StartPluginServicesParams): Promise<PluginServicesHandle> {
   return startPreparedPluginServices({
-<<<<<<< HEAD
     ...params,
     owner: preparePluginServicesOwner(params.registry, previous),
     publication: { callback: onHandle },
-=======
-    registry: params.registry,
-    initialConfig: params.config,
-    workspaceDir: params.workspaceDir,
-    startupTrace: params.startupTrace,
-    broadcastPluginEvent: params.broadcastPluginEvent,
-    getCronService: params.getCronService,
-    observeProviderUsage: params.observeProviderUsage,
-    oneShotStopTimeouts: params.oneShotStopTimeouts,
-    throwOnStartError: params.throwOnStartError,
-    preparedOwner,
-    publication: { callback: params.onHandle },
->>>>>>> cafba1694a (feat(prometheus): expose provider usage windows)
   });
 }
 
@@ -216,22 +202,8 @@ async function startPreparedPluginServices({
   throwOnStartError,
   owner,
   publication,
-<<<<<<< HEAD
 }: Omit<StartPluginServicesParams, "previous" | "onHandle"> & {
   owner: PluginServicesOwner;
-=======
-}: {
-  registry: PluginRegistry;
-  initialConfig: OpenClawConfig;
-  workspaceDir?: string;
-  startupTrace?: NonNullable<OpenClawPluginServiceContext["startupTrace"]>;
-  broadcastPluginEvent?: GatewayPluginEventBroadcastFn;
-  getCronService?: () => PluginServiceCronHost | null | undefined;
-  observeProviderUsage?: ObserveProviderUsage;
-  oneShotStopTimeouts?: { eventDrainMs: number; serviceStopMs: number };
-  throwOnStartError?: boolean;
-  preparedOwner: { ownedServices: OwnedPluginService[]; owner: PluginServicesOwner };
->>>>>>> cafba1694a (feat(prometheus): expose provider usage windows)
   publication: { callback: ((handle: PluginServicesHandle) => void) | undefined };
 }): Promise<PluginServicesHandle> {
   const { services: ownedServices } = owner;
