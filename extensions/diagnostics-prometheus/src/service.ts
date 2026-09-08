@@ -843,8 +843,24 @@ export function createDiagnosticsPrometheusExporter() {
         { exclude: ["log.record"] },
         { includePrivateData: false },
       );
+<<<<<<< HEAD
       internalDiagnostics = ctx.internalDiagnostics;
       reportExporterStatus({
+=======
+      internalDiagnostics = ctx.internalDiagnostics as unknown as TrustedExporterDiagnosticsBridge;
+      if (isDiagnosticsEnabled(ctx.config) && internalDiagnostics.observeProviderUsage) {
+        unsubscribeProviderUsage = await internalDiagnostics.observeProviderUsage((snapshot) => {
+          try {
+            recordProviderUsageSnapshot(store, snapshot);
+          } catch (err) {
+            ctx.logger.error(
+              `diagnostics-prometheus: provider usage handler failed: ${safeErrorMessage(err)}`,
+            );
+          }
+        });
+      }
+      reportExporterHealth({
+>>>>>>> 31ce58a28d (fix(prometheus): address provider usage review feedback)
         signal: "metrics",
         transport: "prometheus-scrape",
         status: "started",
