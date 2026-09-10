@@ -61,6 +61,9 @@ async function writeProviderUsageProofPlugin(params: {
         providers: ["provider-usage-proof"],
         contracts: { usageProviders: ["provider-usage-proof"] },
         activation: { onStartup: true },
+        setup: {
+          providers: [{ id: "provider-usage-proof", envVars: ["PROVIDER_USAGE_PROOF_TOKEN"] }],
+        },
         configSchema: { type: "object", additionalProperties: false, properties: {} },
       },
       null,
@@ -443,6 +446,7 @@ describe("diagnostics-prometheus managed install runtime", () => {
       stateDir,
     });
     env.PROVIDER_USAGE_PROOF_ENDPOINT = providerEndpoint;
+    env.PROVIDER_USAGE_PROOF_TOKEN = "provider-usage-proof-non-secret";
 
     await runCli(
       ["plugins", "install", `npm:${packageName}@${pluginVersion}`, "--accept-capabilities"],
@@ -547,9 +551,11 @@ describe("diagnostics-prometheus managed install runtime", () => {
     );
     const providerUsageMetric =
       'openclaw_provider_usage_used_ratio{provider="provider-usage-proof",window="hour"} 0.25';
+    await expect.poll(() => providerRequestCount, { timeout: 15_000 }).toBeGreaterThan(0);
+    const initialProviderRequests = providerRequestCount;
     await expect
       .poll(async () => (await scrapeMetrics()).body.includes(providerUsageMetric), {
-        timeout: 15_000,
+        timeout: 5_000,
       })
       .toBe(true);
     const requestsBeforeScrapes = providerRequestCount;
@@ -752,6 +758,7 @@ describe("diagnostics-prometheus managed install runtime", () => {
       authenticatedScrape: true,
       disabledStartRequests: providerRequestCount - requestsBeforeDisabledStart,
       hotDisableRequestsAfterRelease,
+      initialProviderRequests,
       nonOfficialObserverGranted: false,
       pluginRevocationRequestsAfterRelease,
       providerMetricObserved: true,
