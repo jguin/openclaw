@@ -394,6 +394,7 @@ export async function startGatewaySidecars(params: {
           startupTrace: params.startupTrace,
           broadcastPluginEvent: params.broadcastPluginEvent,
           getCronService: params.getCronService,
+          observeProviderUsage: observeGatewayProviderUsageMetrics,
           onHandle: (handle) => {
             ownedPluginServices.resolve(handle);
             // Transfer the pending owner to the real service handle before startup yields.
