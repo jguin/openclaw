@@ -637,12 +637,54 @@ describe("usage.status provider usage cache", () => {
     });
     try {
       await vi.waitFor(() => expect(mocks.loadProviderUsageSummary).toHaveBeenCalledOnce());
+      const signal = mocks.loadProviderUsageSummary.mock.calls[0]?.[0].signal;
+      expect(signal?.aborted).toBe(false);
       release();
+      expect(signal?.aborted).toBe(true);
       await vi.advanceTimersByTimeAsync(10_000);
       expect(mocks.loadProviderUsageSummary).toHaveBeenCalledOnce();
     } finally {
       release();
       vi.useRealTimers();
+    }
+  });
+
+  it("preserves an independent usage.status refresh when observer authority is released", async () => {
+    const observerPending = createDeferredCore<UsageSummary>();
+    const rpcUsage: UsageSummary = {
+      updatedAt: now,
+      providers: [
+        {
+          provider: "openai",
+          displayName: "OpenAI",
+          windows: [{ label: "5h", usedPercent: 40 }],
+        },
+      ],
+    };
+    mocks.loadProviderUsageSummary
+      .mockImplementationOnce(() => observerPending.promise)
+      .mockResolvedValueOnce(rpcUsage);
+    const release = observeProviderUsageMetrics({
+      getConfig: () => config,
+      listener: () => {},
+      refreshIntervalMs: 3_600_000,
+    });
+    try {
+      await vi.waitFor(() => expect(mocks.loadProviderUsageSummary).toHaveBeenCalledOnce());
+      const observerSignal = mocks.loadProviderUsageSummary.mock.calls[0]?.[0].signal;
+      expect(observerSignal?.aborted).toBe(false);
+
+      await expect(runUsageStatus()).resolves.toEqual(rpcUsage);
+      expect(mocks.loadProviderUsageSummary).toHaveBeenCalledTimes(2);
+      expect(mocks.loadProviderUsageSummary.mock.calls[1]?.[0].signal).toBeUndefined();
+
+      release();
+      expect(observerSignal?.aborted).toBe(true);
+      expect((await runUsageStatus()) as UsageSummary).toEqual(rpcUsage);
+    } finally {
+      release();
+      observerPending.resolve(rpcUsage);
+      await observerPending.promise;
     }
   });
 

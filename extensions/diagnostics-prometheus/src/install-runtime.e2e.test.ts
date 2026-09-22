@@ -44,6 +44,8 @@ afterEach(async () => {
 });
 
 async function writeProviderUsageProofPlugin(params: {
+  authHoldPath: string;
+  authWaitingPath: string;
   capabilityPath: string;
   pluginRoot: string;
 }): Promise<void> {
@@ -79,7 +81,15 @@ module.exports = {
       id: "provider-usage-proof",
       label: "Provider Usage Proof",
       auth: [],
-      resolveUsageAuth() {
+      async resolveUsageAuth(ctx) {
+        if (fs.existsSync(${JSON.stringify(params.authHoldPath)})) {
+          fs.writeFileSync(${JSON.stringify(params.authWaitingPath)}, "waiting");
+          while (fs.existsSync(${JSON.stringify(params.authHoldPath)})) {
+            ctx.signal?.throwIfAborted();
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+        }
+        ctx.signal?.throwIfAborted();
         return { token: "provider-usage-proof-non-secret" };
       },
       async fetchUsageSnapshot(ctx) {
@@ -354,6 +364,8 @@ describe("diagnostics-prometheus managed install runtime", () => {
     const disabledGatewayLog = path.join(root, "gateway-disabled.log");
     const proofPluginRoot = path.join(root, "provider-usage-proof-plugin");
     const capabilityPath = path.join(root, "provider-usage-capability.json");
+    const authHoldPath = path.join(root, "provider-usage-auth.hold");
+    const authWaitingPath = path.join(root, "provider-usage-auth.waiting");
     const gatewayPassword = "prometheus-managed-install-test-password";
     const gatewayPort = await reservePort();
     let providerRequestCount = 0;
@@ -374,7 +386,12 @@ describe("diagnostics-prometheus managed install runtime", () => {
     const providerEndpoint = `http://127.0.0.1:${providerAddress.port}/usage`;
     await fs.mkdir(home, { recursive: true });
     await fs.mkdir(stateDir, { recursive: true });
-    await writeProviderUsageProofPlugin({ capabilityPath, pluginRoot: proofPluginRoot });
+    await writeProviderUsageProofPlugin({
+      authHoldPath,
+      authWaitingPath,
+      capabilityPath,
+      pluginRoot: proofPluginRoot,
+    });
     await fs.writeFile(
       configPath,
       `${JSON.stringify(
@@ -644,6 +661,25 @@ describe("diagnostics-prometheus managed install runtime", () => {
     expect(providerRequestCount).toBe(requestsAfterDiagnosticsDisable);
     const hotDisableRequestsAfterRelease = providerRequestCount - requestsAfterDiagnosticsDisable;
 
+    await fs.writeFile(authHoldPath, "hold", "utf8");
+    await runCli(["config", "set", "diagnostics.enabled", "true", "--strict-json"], env);
+    await expect
+      .poll(() =>
+        fs
+          .stat(authWaitingPath)
+          .then(() => true)
+          .catch(() => false),
+      )
+      .toBe(true);
+    const requestsBeforeAuthRevocation = providerRequestCount;
+    await runCli(["config", "set", "diagnostics.enabled", "false", "--strict-json"], env);
+    await fs.rm(authHoldPath);
+    await delay(1_000);
+    expect(providerRequestCount).toBe(requestsBeforeAuthRevocation);
+    const revokedDuringAuthRequestsAfterRelease =
+      providerRequestCount - requestsBeforeAuthRevocation;
+    await fs.rm(authWaitingPath, { force: true });
+
     await runCli(["config", "set", "diagnostics.enabled", "true", "--strict-json"], env);
     await expect
       .poll(() => providerRequestCount, { timeout: 15_000 })
@@ -750,6 +786,7 @@ describe("diagnostics-prometheus managed install runtime", () => {
       nonOfficialObserverGranted: false,
       pluginRevocationRequestsAfterRelease,
       providerMetricObserved: true,
+      revokedDuringAuthRequestsAfterRelease,
       scrapeTriggeredRequests,
     };
     const evidenceText = `${JSON.stringify(sanitizedEvidence, null, 2)}\n`;
