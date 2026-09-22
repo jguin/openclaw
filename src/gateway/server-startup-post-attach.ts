@@ -57,7 +57,6 @@ import {
 } from "./server-startup-sidecar-scheduler.js";
 import { measureStartup, type GatewayStartupTrace } from "./server-startup-trace.js";
 import { scheduleTranscriptsSidecar } from "./server-startup-transcripts.js";
-import { observeGatewayProviderUsageMetrics } from "./provider-usage-metrics-observer.js";
 import { createDeferredGatewayUpdateCheck } from "./server-startup-update-check.js";
 import type { ReadinessChecker } from "./server/readiness.js";
 import {
@@ -377,7 +376,7 @@ export async function startGatewaySidecars(params: {
     params.onPluginServices?.(pluginServicesOwner);
     await measureStartup(params.startupTrace, "sidecars.plugin-services", async () => {
       try {
-        const { startPluginServices } = await import("../plugins/services.js");
+        const { startGatewayPluginServices } = await import("./server-plugin-services.js");
         await params.pluginRuntimeClaim?.waitForUnblocked();
         if (
           pluginServicesStopRequested ||
@@ -387,14 +386,13 @@ export async function startGatewaySidecars(params: {
           ownedPluginServices.resolve(null);
           return;
         }
-        await startPluginServices({
+        await startGatewayPluginServices({
           registry: params.pluginRegistry,
           config: params.cfg,
           workspaceDir: params.defaultWorkspaceDir,
           startupTrace: params.startupTrace,
           broadcastPluginEvent: params.broadcastPluginEvent,
           getCronService: params.getCronService,
-          observeProviderUsage: observeGatewayProviderUsageMetrics,
           onHandle: (handle) => {
             ownedPluginServices.resolve(handle);
             // Transfer the pending owner to the real service handle before startup yields.

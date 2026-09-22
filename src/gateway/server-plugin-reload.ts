@@ -28,7 +28,6 @@ import { getPluginRegistryVersion } from "../plugins/runtime-state.js";
 import { waitForPluginRegistryRetirement } from "../plugins/runtime.js";
 import { withPluginRuntimeRegistryScope } from "../plugins/runtime/gateway-request-scope.js";
 import { getPluginRuntimeLoadContext } from "../plugins/runtime/load-context.js";
-import { startPluginServices, type PluginServicesHandle } from "../plugins/services.js";
 import {
   getGatewayRestartDrainSignal,
   waitForGatewayRestartFenceSettlement,
@@ -39,7 +38,6 @@ import {
   prepareClientPluginNodeCapabilities,
   reconcileClientPluginNodeCapabilities,
 } from "./plugin-node-capability.js";
-import { observeGatewayProviderUsageMetrics } from "./provider-usage-metrics-observer.js";
 import type { prepareGatewayLifecycle } from "./server-lifecycle.js";
 import type { prepareGatewayPluginLoad } from "./server-plugin-bootstrap.js";
 import { createPluginReloadChannels } from "./server-plugin-reload-channels.js";
@@ -51,6 +49,7 @@ import {
   createPluginReloadRecovery,
   resolvePluginReloadReplacementIds,
 } from "./server-plugin-reload-recovery.js";
+import { startGatewayPluginServices, type PluginServicesHandle } from "./server-plugin-services.js";
 import {
   GatewayConfigReloadSupersededError,
   type GatewayReloadHandlerParams,
@@ -358,13 +357,12 @@ export async function reloadGatewayPlugins(
     assertCurrent();
     phase = "activate";
     const startedServices = await withPluginRegistryPreparationScope(nextRegistry, () =>
-      startPluginServices({
+      startGatewayPluginServices({
         registry: nextRegistry,
         config: params.nextConfig,
         workspaceDir: pluginWorkspaceDir,
         broadcastPluginEvent,
         getCronService: kernel.getCronService,
-        observeProviderUsage: observeGatewayProviderUsageMetrics,
         previous: previousServices,
         onHandle: (handle) => {
           candidateServices = handle;
@@ -570,13 +568,12 @@ export async function reloadGatewayPlugins(
             const attached = await prepareAttachedPluginRuntime(recovered);
             await withPluginRegistryPreparationScope(restoredRegistry, async () => {
               await attempt(recoveryErrors, async () => {
-                await startPluginServices({
+                await startGatewayPluginServices({
                   registry: restoredRegistry,
                   config: previousConfig,
                   workspaceDir: pluginWorkspaceDir,
                   broadcastPluginEvent,
                   getCronService: kernel.getCronService,
-                  observeProviderUsage: observeGatewayProviderUsageMetrics,
                   previous: kernel.pluginRuntimeGeneration.currentServices(),
                   onHandle: (handle) => {
                     recoveredServices = handle;

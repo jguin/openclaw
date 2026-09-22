@@ -46,6 +46,7 @@ type ProviderUsageRefresh = {
   credentialKey: string;
   providerKey: string;
   promise: Promise<UsageSummary>;
+  signal?: AbortSignal;
 };
 
 const usageCacheByAgentId = new Map<string, ProviderUsageCacheEntry>();
@@ -306,14 +307,17 @@ function scheduleProviderUsageRefresh(params: {
   credentialKey: string;
   providerIds: UsageProviderId[];
   providerKey: string;
+  signal?: AbortSignal;
   lastGood?: UsageSummary;
 }): Promise<UsageSummary> {
+  params.signal?.throwIfAborted();
   const active = usageRefreshByAgentId.get(params.agentId);
   if (
     active?.agentDir === params.agentDir &&
     active.configRef === params.configRef &&
     active.credentialKey === params.credentialKey &&
-    active.providerKey === params.providerKey
+    active.providerKey === params.providerKey &&
+    (active.signal === undefined || active.signal === params.signal)
   ) {
     return active.promise;
   }
@@ -328,6 +332,7 @@ function scheduleProviderUsageRefresh(params: {
       authStore: params.authStore,
       config: params.configRef,
       timeoutMs: PROVIDER_USAGE_TIMEOUT_MS,
+      ...(params.signal ? { signal: params.signal } : {}),
     })
       .then((freshUsage) => {
         const usage = retainLastGoodOnTimeout(freshUsage, params.lastGood);
@@ -389,6 +394,7 @@ function scheduleProviderUsageRefresh(params: {
     credentialKey: params.credentialKey,
     providerKey: params.providerKey,
     promise,
+    ...(params.signal ? { signal: params.signal } : {}),
   };
   usageRefreshByAgentId.set(params.agentId, refresh);
   return promise;
@@ -506,6 +512,7 @@ export function observeProviderUsageMetrics(params: {
   listener: ProviderUsageMetricsListener;
   refreshIntervalMs?: number;
 }): () => void {
+  const authority = new AbortController();
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
   let agentId: string | undefined;
@@ -554,6 +561,7 @@ export function observeProviderUsageMetrics(params: {
         credentialKey,
         providerIds,
         providerKey,
+        signal: authority.signal,
         lastGood: matching?.summary,
       });
     } catch (err) {
@@ -572,7 +580,11 @@ export function observeProviderUsageMetrics(params: {
   void refresh();
   return () => {
     stopped = true;
+    authority.abort(new DOMException("Provider usage observer released", "AbortError"));
     clearTimeout(timer);
     removeListener(agentId);
+    if (agentId && usageRefreshByAgentId.get(agentId)?.signal === authority.signal) {
+      usageRefreshByAgentId.delete(agentId);
+    }
   };
 }
