@@ -288,8 +288,10 @@ On a fresh start with diagnostics enabled, the exporter requests one background
 refresh during service startup and schedules the next refresh about 60 seconds
 after that attempt completes. A fresh start with diagnostics disabled acquires no
 refresh interest and makes no provider-usage request. Hot-disable releases the
-interest and cancels its next scheduled refresh; hot-enable acquires a new owner
-and starts a fresh background refresh.
+interest, cancels its next scheduled refresh, and fences an observer-only refresh
+before provider I/O even when credential resolution is already in progress. An
+independently requested `usage.status` refresh keeps its own authority. Hot-enable
+acquires a new owner and starts a fresh background refresh.
 
 <Warning>
 Upgrading an existing installation whose Prometheus exporter and diagnostics are
