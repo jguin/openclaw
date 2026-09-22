@@ -36,7 +36,7 @@ describe("diagnostics-prometheus provider usage", () => {
   it("does not acquire provider usage while diagnostics are disabled", async () => {
     const exporter = createDiagnosticsPrometheusExporter();
     const observeProviderUsage = vi.fn();
-    await exporter.service.start({
+    exporter.service.start({
       config: { diagnostics: { enabled: false } } as never,
       stateDir: "/tmp/openclaw-prometheus-test",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
@@ -52,11 +52,36 @@ describe("diagnostics-prometheus provider usage", () => {
     expect(exporter.render()).toBe("");
   });
 
+  it("reports provider usage acquisition failures without rejecting service startup", async () => {
+    const exporter = createDiagnosticsPrometheusExporter();
+    const error = vi.fn();
+    exporter.service.start({
+      config: {} as never,
+      stateDir: "/tmp/openclaw-prometheus-test",
+      logger: { info: vi.fn(), warn: vi.fn(), error, debug: vi.fn() },
+      internalDiagnostics: {
+        emit: vi.fn(),
+        onEvent: () => vi.fn(),
+        observeProviderUsage: async () => {
+          throw new Error("acquisition failed");
+        },
+        reportExporterHealth: vi.fn(),
+      } as TrustedExporterInternalDiagnostics,
+    });
+
+    await vi.waitFor(() =>
+      expect(error).toHaveBeenCalledWith(
+        "diagnostics-prometheus: provider usage handler failed: acquisition failed",
+      ),
+    );
+    exporter.service.stop?.();
+  });
+
   it("renders cache-owned provider usage and withdraws stale series", async () => {
     const exporter = createDiagnosticsPrometheusExporter();
     const unsubscribe = vi.fn();
     let publish: ProviderUsageListener | undefined;
-    await exporter.service.start({
+    exporter.service.start({
       config: {} as never,
       stateDir: "/tmp/openclaw-prometheus-test",
       logger: {
@@ -123,7 +148,7 @@ describe("diagnostics-prometheus provider usage", () => {
     expect(exporter.render()).not.toContain("openclaw_provider_usage_");
 
     exporter.service.stop?.();
-    expect(unsubscribe).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce());
   });
 
   it("releases and reacquires provider usage across diagnostics replacement", async () => {
@@ -157,14 +182,14 @@ describe("diagnostics-prometheus provider usage", () => {
       ],
     };
 
-    await exporter.service.start(context(true));
+    exporter.service.start(context(true));
     expect(observeProviderUsage).toHaveBeenCalledOnce();
     expectDefined(listeners[0], "initial provider usage listener")(snapshot);
     expect(exporter.render()).toContain("openclaw_provider_usage_used_ratio");
 
     exporter.service.stop?.();
-    await exporter.service.start(context(false));
-    expect(releases[0]).toHaveBeenCalledOnce();
+    exporter.service.start(context(false));
+    await vi.waitFor(() => expect(releases[0]).toHaveBeenCalledOnce());
     expect(observeProviderUsage).toHaveBeenCalledOnce();
     expect(exporter.render()).not.toContain("openclaw_provider_usage_");
 
@@ -172,12 +197,12 @@ describe("diagnostics-prometheus provider usage", () => {
     expect(exporter.render()).not.toContain("openclaw_provider_usage_");
 
     exporter.service.stop?.();
-    await exporter.service.start(context(true));
+    exporter.service.start(context(true));
     expect(observeProviderUsage).toHaveBeenCalledTimes(2);
     expectDefined(listeners[1], "replacement provider usage listener")(snapshot);
     expect(exporter.render()).toContain("openclaw_provider_usage_used_ratio");
 
     exporter.service.stop?.();
-    expect(releases[1]).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(releases[1]).toHaveBeenCalledOnce());
   });
 });
