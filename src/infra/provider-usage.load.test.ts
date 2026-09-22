@@ -155,6 +155,33 @@ describe("provider-usage.load", () => {
     },
   );
 
+  it("does not dispatch usage after caller authority is revoked during authentication", async () => {
+    const scope = new AsyncWorkScope();
+    const auth = createDeferredCore<{ token: string }>();
+    const authority = new AbortController();
+    resolveProviderUsageAuthWithPluginMock.mockReturnValue(auth.promise);
+    const pending = scope.track(() =>
+      loadProviderUsageSummary({
+        providers: ["anthropic"],
+        config: {},
+        env: { ANTHROPIC_API_KEY: "fixture-token" },
+        signal: authority.signal,
+      }),
+    );
+    try {
+      await vi.waitFor(() => expect(resolveProviderUsageAuthWithPluginMock).toHaveBeenCalledOnce());
+      authority.abort(new DOMException("Observer released", "AbortError"));
+      auth.resolve({ token: "fixture-token" });
+      await scope.drain();
+      expect(resolveProviderUsageSnapshotWithPluginMock).not.toHaveBeenCalled();
+      expect((await pending).providers[0]?.error).toBe("Observer released");
+    } finally {
+      auth.resolve({ token: "fixture-token" });
+      await pending;
+      await scope.drain();
+    }
+  });
+
   it("returns unsupported provider snapshots for unknown provider ids", async () => {
     const mockFetch = createProviderUsageFetch(async () => makeResponse(404, "not found"));
     const summary = await loadUsageWithAuth(
