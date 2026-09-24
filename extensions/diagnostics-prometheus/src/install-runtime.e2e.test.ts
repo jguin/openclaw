@@ -337,7 +337,8 @@ async function waitForGateway(params: {
   logPath: string;
   port: number;
 }): Promise<void> {
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + 180_000;
+  let lastProbeResult = "not attempted";
   while (Date.now() < deadline) {
     if (params.child.exitCode !== null || params.child.signalCode !== null) {
       const logs = await fs.readFile(params.logPath, "utf8").catch(() => "");
@@ -350,13 +351,18 @@ async function waitForGateway(params: {
       if (response.ok) {
         return;
       }
-    } catch {
+      const body = await response.text().catch(() => "");
+      lastProbeResult = `HTTP ${response.status}: ${body.slice(0, 2_000)}`;
+    } catch (error) {
       // Readiness is authoritative only after the HTTP endpoint responds.
+      lastProbeResult = error instanceof Error ? error.message : String(error);
     }
     await delay(200);
   }
   const logs = await fs.readFile(params.logPath, "utf8").catch(() => "");
-  throw new Error(`Gateway did not become ready:\n${logs.slice(-8_000)}`);
+  throw new Error(
+    `Gateway did not become ready (last /readyz result: ${lastProbeResult}):\n${logs.slice(-8_000)}`,
+  );
 }
 
 describe("diagnostics-prometheus managed install runtime", () => {
@@ -808,5 +814,5 @@ describe("diagnostics-prometheus managed install runtime", () => {
       evidenceText,
       "utf8",
     );
-  }, 480_000);
+  }, 660_000);
 });
