@@ -28,13 +28,13 @@ import {
   createPrometheusMetricStore,
   type PrometheusMetricStore,
 } from "./prometheus-metric-store.js";
-import { recordGatewayRpcEvent } from "./service-gateway-rpc.js";
-import { recordMemorySample } from "./service-memory.js";
 import {
   createProviderUsageObserver,
   type PrometheusExporterHealthUpdate,
   type TrustedExporterDiagnosticsBridge,
 } from "./provider-usage-metrics.js";
+import { recordGatewayRpcEvent } from "./service-gateway-rpc.js";
+import { recordMemorySample } from "./service-memory.js";
 
 const TOKEN_BUCKETS = [1, 4, 16, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576];
 const BYTE_BUCKETS = [
