@@ -42,7 +42,13 @@ For traces, logs, OTLP push, and OpenTelemetry GenAI semantic attributes, see [O
           plugins: {
             allow: ["diagnostics-prometheus"],
             entries: {
-              "diagnostics-prometheus": { enabled: true },
+              "diagnostics-prometheus": {
+                enabled: true,
+                config: {
+                  // Explicitly opt in to credential-backed provider allowance polling.
+                  providerUsage: { enabled: true },
+                },
+              },
             },
           },
           diagnostics: {
@@ -91,7 +97,13 @@ For traces, logs, OTLP push, and OpenTelemetry GenAI semantic attributes, see [O
 </Steps>
 
 <Note>
-`diagnostics.enabled` defaults to `true`; set it to `false` only in tightly constrained environments. When it is `false`, the plugin still registers the HTTP route, but no diagnostic events, runtime identity, or provider-usage refresh interest are recorded, so the response is empty. Hot changes to this setting replace the exporter service and acquire or release refresh interest accordingly.
+`diagnostics.enabled` defaults to `true`; set it to `false` only in tightly
+constrained environments. When it is `false`, the plugin still registers the
+HTTP route, but no diagnostic events or runtime identity are recorded, so the
+response is empty. Provider-usage polling is independently opt-in through
+`plugins.entries.diagnostics-prometheus.config.providerUsage.enabled`. Hot
+changes to either setting replace the exporter service and acquire or release
+refresh interest accordingly.
 </Note>
 
 ## Metrics exported
@@ -275,8 +287,10 @@ Provider allowance metrics use the same selected credential as the unscoped
 `usage.status` method for the resolved default agent. They never include account
 email, profile IDs, credential IDs, plan names, or billing details.
 
-When diagnostics are enabled, the exporter acquires refresh interest from the
-Gateway-owned provider-usage cache. Provider network requests run on that cache's bounded background schedule;
+When diagnostics and `plugins.entries.diagnostics-prometheus.config.providerUsage.enabled`
+are both enabled, the exporter acquires refresh interest from the Gateway-owned provider-usage
+cache. The provider-usage setting defaults to `false`. Provider network requests
+run on that cache's bounded background schedule;
 serving `/api/diagnostics/prometheus` only renders retained facts and never calls
 a provider. Each refresh resolves the current runtime configuration, including
 hot changes to profile selection. A successful refresh replaces the provider's allowance windows. A
@@ -284,23 +298,21 @@ transient failure keeps the last successful windows, advances
 `openclaw_provider_usage_last_attempt_timestamp_seconds`, and sets
 `openclaw_provider_usage_refresh_success` to `0`.
 
-On a fresh start with diagnostics enabled, the exporter requests one background
-refresh during service startup and schedules the next refresh about 60 seconds
-after that attempt completes. A fresh start with diagnostics disabled acquires no
-refresh interest and makes no provider-usage request. Hot-disable releases the
-interest, cancels its next scheduled refresh, and fences an observer-only refresh
+On a fresh start with diagnostics and provider-usage polling enabled, the exporter
+requests one background refresh during service startup and schedules the next refresh
+about 60 seconds after that attempt completes. A fresh start without the explicit
+provider-usage opt-in acquires no refresh interest and makes no provider-usage request.
+Disabling either diagnostics or provider-usage polling releases the interest, cancels
+its next scheduled refresh, and fences an observer-only refresh
 before provider I/O even when credential resolution is already in progress. An
 independently requested `usage.status` refresh keeps its own authority. Hot-enable
 acquires a new owner and starts a fresh background refresh.
 
-<Warning>
-Upgrading an existing installation whose Prometheus exporter and diagnostics are
-already enabled activates this background provider-usage polling the next time
-the upgraded exporter starts. The poll uses the default agent's already configured
-provider credentials. Scrape requests do not trigger it. Disable diagnostics or
-the `diagnostics-prometheus` plugin before upgrading if this automatic provider
-usage traffic is not acceptable for the deployment.
-</Warning>
+Upgrading an existing installation does not activate provider-usage polling. To expose
+these metrics, explicitly set
+`plugins.entries.diagnostics-prometheus.config.providerUsage.enabled` to `true`. The poll
+uses the default agent's already configured provider credentials. Scrape requests do not
+trigger it.
 
 Changing the selected credential or provider set immediately withdraws the old
 allowance series. New `used_ratio` and reset series appear only after a successful
