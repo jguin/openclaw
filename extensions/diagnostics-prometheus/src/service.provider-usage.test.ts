@@ -27,17 +27,33 @@ type ProviderUsageListener = (snapshot: {
 }) => void;
 
 describe("diagnostics-prometheus provider usage", () => {
-  it("declares diagnostics enablement as a service replacement boundary", () => {
+  const config = (diagnosticsEnabled: boolean, providerUsageEnabled: boolean) => ({
+    diagnostics: { enabled: diagnosticsEnabled },
+    plugins: {
+      entries: {
+        "diagnostics-prometheus": {
+          config: { providerUsage: { enabled: providerUsageEnabled } },
+        },
+      },
+    },
+  });
+
+  it("declares diagnostics and provider usage enablement as replacement boundaries", () => {
     const exporter = createDiagnosticsPrometheusExporter();
 
-    expect(exporter.service.reload).toEqual({ configPrefixes: ["diagnostics.enabled"] });
+    expect(exporter.service.reload).toEqual({
+      configPrefixes: [
+        "diagnostics.enabled",
+        "plugins.entries.diagnostics-prometheus.config.providerUsage",
+      ],
+    });
   });
 
   it("does not acquire provider usage while diagnostics are disabled", async () => {
     const exporter = createDiagnosticsPrometheusExporter();
     const observeProviderUsage = vi.fn();
     exporter.service.start({
-      config: { diagnostics: { enabled: false } } as never,
+      config: config(false, true) as never,
       stateDir: "/tmp/openclaw-prometheus-test",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
       internalDiagnostics: {
@@ -52,11 +68,30 @@ describe("diagnostics-prometheus provider usage", () => {
     expect(exporter.render()).toBe("");
   });
 
+  it("does not acquire provider usage without explicit opt-in", () => {
+    const exporter = createDiagnosticsPrometheusExporter();
+    const observeProviderUsage = vi.fn();
+    exporter.service.start({
+      config: { diagnostics: { enabled: true } } as never,
+      stateDir: "/tmp/openclaw-prometheus-test",
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+      internalDiagnostics: {
+        emit: vi.fn(),
+        onEvent: () => vi.fn(),
+        observeProviderUsage,
+        reportExporterHealth: vi.fn(),
+      } as TrustedExporterInternalDiagnostics,
+    });
+
+    expect(observeProviderUsage).not.toHaveBeenCalled();
+    exporter.service.stop?.();
+  });
+
   it("reports provider usage acquisition failures without rejecting service startup", async () => {
     const exporter = createDiagnosticsPrometheusExporter();
     const error = vi.fn();
     exporter.service.start({
-      config: {} as never,
+      config: config(true, true) as never,
       stateDir: "/tmp/openclaw-prometheus-test",
       logger: { info: vi.fn(), warn: vi.fn(), error, debug: vi.fn() },
       internalDiagnostics: {
@@ -82,7 +117,7 @@ describe("diagnostics-prometheus provider usage", () => {
     const unsubscribe = vi.fn();
     let publish: ProviderUsageListener | undefined;
     exporter.service.start({
-      config: {} as never,
+      config: config(true, true) as never,
       stateDir: "/tmp/openclaw-prometheus-test",
       logger: {
         info: vi.fn(),
@@ -151,7 +186,7 @@ describe("diagnostics-prometheus provider usage", () => {
     await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce());
   });
 
-  it("releases and reacquires provider usage across diagnostics replacement", async () => {
+  it("releases and reacquires provider usage across opt-in replacement", async () => {
     const exporter = createDiagnosticsPrometheusExporter();
     const listeners: ProviderUsageListener[] = [];
     const releases = [vi.fn(), vi.fn()];
@@ -159,8 +194,8 @@ describe("diagnostics-prometheus provider usage", () => {
       listeners.push(listener);
       return expectDefined(releases[listeners.length - 1], "provider usage release");
     });
-    const context = (enabled: boolean) => ({
-      config: { diagnostics: { enabled } } as never,
+    const context = (diagnosticsEnabled: boolean, providerUsageEnabled: boolean) => ({
+      config: config(diagnosticsEnabled, providerUsageEnabled) as never,
       stateDir: "/tmp/openclaw-prometheus-test",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
       internalDiagnostics: {
@@ -182,13 +217,13 @@ describe("diagnostics-prometheus provider usage", () => {
       ],
     };
 
-    exporter.service.start(context(true));
+    exporter.service.start(context(true, true));
     expect(observeProviderUsage).toHaveBeenCalledOnce();
     expectDefined(listeners[0], "initial provider usage listener")(snapshot);
     expect(exporter.render()).toContain("openclaw_provider_usage_used_ratio");
 
     exporter.service.stop?.();
-    exporter.service.start(context(false));
+    exporter.service.start(context(true, false));
     await vi.waitFor(() => expect(releases[0]).toHaveBeenCalledOnce());
     expect(observeProviderUsage).toHaveBeenCalledOnce();
     expect(exporter.render()).not.toContain("openclaw_provider_usage_");
@@ -197,7 +232,7 @@ describe("diagnostics-prometheus provider usage", () => {
     expect(exporter.render()).not.toContain("openclaw_provider_usage_");
 
     exporter.service.stop?.();
-    exporter.service.start(context(true));
+    exporter.service.start(context(true, true));
     expect(observeProviderUsage).toHaveBeenCalledTimes(2);
     expectDefined(listeners[1], "replacement provider usage listener")(snapshot);
     expect(exporter.render()).toContain("openclaw_provider_usage_used_ratio");
