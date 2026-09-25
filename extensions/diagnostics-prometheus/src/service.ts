@@ -13,6 +13,7 @@ import type {
   DiagnosticEventPayload,
   OpenClawPluginHttpRouteHandler,
   OpenClawPluginService,
+  OpenClawPluginServiceContext,
 } from "../api.js";
 import { isInternalDiagnosticEventMetadata, redactSensitiveText } from "../api.js";
 import {
@@ -42,6 +43,20 @@ const BYTE_BUCKETS = [
   4294967296, 17179869184,
 ];
 const RATIO_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 2, 4, 8, 16];
+
+function isProviderUsagePollingEnabled(config: OpenClawPluginServiceContext["config"]): boolean {
+  const pluginConfig = config.plugins?.entries?.["diagnostics-prometheus"]?.config;
+  if (!pluginConfig || typeof pluginConfig !== "object" || Array.isArray(pluginConfig)) {
+    return false;
+  }
+  const providerUsage = (pluginConfig as Record<string, unknown>).providerUsage;
+  return (
+    providerUsage !== null &&
+    typeof providerUsage === "object" &&
+    !Array.isArray(providerUsage) &&
+    (providerUsage as Record<string, unknown>).enabled === true
+  );
+}
 
 function safeErrorMessage(err: unknown): string {
   const message = err instanceof Error ? (err.message ?? err.name) : String(err);
@@ -857,7 +872,12 @@ export function createDiagnosticsPrometheusExporter() {
 
   const service = {
     id: "diagnostics-prometheus",
-    reload: { configPrefixes: ["diagnostics.enabled"] },
+    reload: {
+      configPrefixes: [
+        "diagnostics.enabled",
+        "plugins.entries.diagnostics-prometheus.config.providerUsage",
+      ],
+    },
     start(ctx) {
       const subscribe = ctx.internalDiagnostics?.onEvent;
       if (!subscribe) {
@@ -896,7 +916,7 @@ export function createDiagnosticsPrometheusExporter() {
       internalDiagnostics = ctx.internalDiagnostics as unknown as TrustedExporterDiagnosticsBridge;
       providerUsageObserver.start({
         bridge: internalDiagnostics,
-        enabled: isDiagnosticsEnabled(ctx.config),
+        enabled: isDiagnosticsEnabled(ctx.config) && isProviderUsagePollingEnabled(ctx.config),
         onError: (err) =>
           ctx.logger.error(
             `diagnostics-prometheus: provider usage handler failed: ${safeErrorMessage(err)}`,

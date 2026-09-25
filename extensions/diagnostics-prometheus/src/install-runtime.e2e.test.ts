@@ -574,6 +574,19 @@ describe("diagnostics-prometheus managed install runtime", () => {
     );
     const providerUsageMetric =
       'openclaw_provider_usage_used_ratio{provider="provider-usage-proof",window="hour"} 0.25';
+    await delay(1_000);
+    expect(providerRequestCount).toBe(0);
+    expect(body).not.toContain(providerUsageMetric);
+    await runCli(
+      [
+        "config",
+        "set",
+        "plugins.entries.diagnostics-prometheus.config.providerUsage.enabled",
+        "true",
+        "--strict-json",
+      ],
+      env,
+    );
     await expect.poll(() => providerRequestCount, { timeout: 15_000 }).toBeGreaterThan(0);
     const initialProviderRequests = providerRequestCount;
     await expect
