@@ -175,7 +175,7 @@ const FROZEN_RELEASE_2026_9_OPTIONAL_REVIEWED_PACKED_FINDING_COUNTS = new Map<st
   ["@openclaw/codex:dangerous-exec:src/app-server/transport-process-snapshot.test.ts", 1],
   ["@openclaw/codex:dangerous-exec:src/app-server/transport-startup.test.ts", 2],
   ["@openclaw/codex:dangerous-exec:src/app-server/transport.process.test.ts", 10],
-  ["@openclaw/diagnostics-prometheus:dangerous-exec:src/install-runtime.e2e.test.ts", 2],
+  ["@openclaw/diagnostics-prometheus:dangerous-exec:src/install-runtime.release.test.ts", 2],
   ["@openclaw/google-meet:dangerous-exec:src/cli-artifacts.test.ts", 1],
   ["@openclaw/google-meet:dangerous-exec:src/realtime.process.test.ts", 1],
   ["@openclaw/imessage:dangerous-exec:src/client.test.ts", 3],
