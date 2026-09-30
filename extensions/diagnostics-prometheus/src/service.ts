@@ -42,10 +42,6 @@ const BYTE_BUCKETS = [
 ];
 const RATIO_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 2, 4, 8, 16];
 
-function shouldRecordDiagnosticEvent(metadata: DiagnosticEventMetadata): boolean {
-  return metadata.trusted || isInternalDiagnosticEventMetadata(metadata);
-}
-
 function renderPrometheusMetrics(store: PrometheusMetricStore): string {
   const snapshot = store.snapshot();
   const lines: string[] = [];
