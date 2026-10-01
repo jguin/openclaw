@@ -84,8 +84,8 @@ async function runUsageStatus(params: { runtimeConfig?: OpenClawConfig; client?:
   return expectDefined(respond.mock.calls[0]?.[1], "usage.status result");
 }
 
-function runCapableUsageStatus() {
-  return runUsageStatus({ client: refreshingCapableClient });
+function runCapableUsageStatus(runtimeConfig = config) {
+  return runUsageStatus({ runtimeConfig, client: refreshingCapableClient });
 }
 
 async function settledStatus(client: unknown = refreshingCapableClient) {
