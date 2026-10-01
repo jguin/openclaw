@@ -526,7 +526,7 @@ export function observeProviderUsageMetrics(params: {
         removeListener(agentId);
       }
       agentId = snapshot.agentId;
-      const { credentialKey, matching, providerIds, providerKey } = resolveProviderUsageCacheRead({
+      const { refreshParams } = resolveProviderUsageCacheRead({
         agentId,
         agentDir: snapshot.agentDir,
         authStore: snapshot.store,
@@ -536,7 +536,11 @@ export function observeProviderUsageMetrics(params: {
         forceRefresh: true,
         now: Date.now(),
       });
-      reconcileUsageMetricsSelection({ agentId, credentialKey, providerKey });
+      reconcileUsageMetricsSelection({
+        agentId,
+        credentialKey: refreshParams.credentialKey,
+        providerKey: refreshParams.providerKey,
+      });
       let listeners = usageMetricsListenersByAgentId.get(agentId);
       if (!listeners) {
         listeners = new Set();
@@ -545,15 +549,8 @@ export function observeProviderUsageMetrics(params: {
       listeners.add(params.listener);
       publishUsageMetrics(agentId);
       await scheduleProviderUsageRefresh({
-        agentId,
-        agentDir: snapshot.agentDir,
-        authStore: snapshot.store,
-        configRef: snapshot.configRef,
-        credentialKey,
-        providerIds,
-        providerKey,
+        ...refreshParams,
         signal: authority.signal,
-        lastGood: matching?.summary,
       });
     } catch (err) {
       log.debug(`provider usage metrics refresh failed: ${formatForLog(err)}`);
