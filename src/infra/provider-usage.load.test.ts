@@ -16,6 +16,7 @@ import type { ProviderUsageSnapshot, UsageSummary } from "./provider-usage.types
 
 const resolveProviderUsageAuthWithPluginMock = getProviderUsageAuthWithPluginMock();
 const resolveProviderUsageSnapshotWithPluginMock = getProviderUsageSnapshotWithPluginMock();
+const googleGeminiCliProvider = "google-gemini-cli";
 
 describe("provider-usage.load", () => {
   beforeEach(() => {
