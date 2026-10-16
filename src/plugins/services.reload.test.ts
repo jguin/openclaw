@@ -34,6 +34,7 @@ describe("plugin service reload", () => {
     const contexts: OpenClawPluginServiceContext[] = [];
     let siblingContext: OpenClawPluginServiceContext | undefined;
     const stops: OpenClawConfig[] = [];
+    const stopReasons: OpenClawPluginServiceContext["stopReason"][] = [];
     const broadcastPluginEvent = vi.fn();
     const registry = createRegistry(
       [
@@ -45,6 +46,7 @@ describe("plugin service reload", () => {
           },
           stop(ctx) {
             stops.push(ctx.config);
+            stopReasons.push(ctx.stopReason);
           },
         },
       ],
@@ -68,6 +70,7 @@ describe("plugin service reload", () => {
     ]);
     expect(contexts.map((ctx) => ctx.config)).toEqual([first, next, final]);
     expect(stops).toEqual([first, next]);
+    expect(stopReasons).toEqual(["reload", "reload"]);
     expect(siblingStart).toHaveBeenCalledOnce();
     expect(registry.httpRoutes).toHaveLength(1);
     expect(() => contexts[0]?.gatewayEvents?.emit("late", {}, { scope: "operator.read" })).toThrow(
@@ -85,6 +88,7 @@ describe("plugin service reload", () => {
     expect(broadcastPluginEvent).toHaveBeenCalledTimes(2);
     await handle.stop();
     expect(stops).toEqual([first, next, final]);
+    expect(stopReasons).toEqual(["reload", "reload", "shutdown"]);
     expect(registry.httpRoutes).toEqual([]);
   });
 
@@ -97,12 +101,14 @@ describe("plugin service reload", () => {
       const siblingEntered = createDeferredCore();
       const siblingRelease = createDeferredCore();
       const contexts: OpenClawPluginServiceContext[] = [];
+      const stopReasons: OpenClawPluginServiceContext["stopReason"][] = [];
       const held = {
         id: "held",
         start: vi.fn((context: OpenClawPluginServiceContext) => {
           contexts.push(context);
         }),
-        stop: vi.fn(() => {
+        stop: vi.fn((ctx: OpenClawPluginServiceContext) => {
+          stopReasons.push(ctx.stopReason);
           entered.resolve();
           return release.promise;
         }),
@@ -178,6 +184,7 @@ describe("plugin service reload", () => {
           expect(sibling.start).toHaveBeenCalledTimes(2);
           expect(listPluginServiceHealthFailures(registry)).toEqual([]);
         }
+        expect(stopReasons).toEqual(["reload"]);
       } finally {
         release.resolve();
         siblingRelease.resolve();

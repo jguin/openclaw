@@ -209,10 +209,12 @@ async function startPreparedPluginServices({
   };
   const stopService = async (
     entry: OwnedPluginService,
+    stopReason: "reload" | "shutdown",
     failures?: unknown[],
     deadline?: number,
     beforeStop?: Promise<unknown>,
   ) => {
+    entry.stopReason ??= stopReason;
     entry.stopRequested = true;
     entry.scheduling.scheduler.beginClose();
     entry.stopNodeInvocations?.();
@@ -334,6 +336,7 @@ async function startPreparedPluginServices({
   };
   const stopServices = async (
     reversed: OwnedPluginService[],
+    stopReason: "reload" | "shutdown",
     strict: boolean,
     failures: unknown[] | undefined,
     deadline?: number | (() => number),
@@ -346,7 +349,7 @@ async function startPreparedPluginServices({
       : reversed.filter((entry) => entry.diagnosticsExporter);
     const producers = oneShotTimeouts ? [] : reversed.filter((entry) => !entry.diagnosticsExporter);
     for (const entry of producers) {
-      await stopService(entry, failures, resolveDeadline());
+      await stopService(entry, stopReason, failures, resolveDeadline());
     }
     let exporterReady: Promise<unknown> | undefined;
     if (afterDrain.length > 0) {
@@ -385,7 +388,13 @@ async function startPreparedPluginServices({
     // Fresh one-shot flush budgets start after drain; absolute replacement deadlines span all phases.
     const stopDeadline = oneShotTimeouts ? Date.now() + oneShotTimeouts.serviceStopMs : undefined;
     for (const entry of afterDrain) {
-      await stopService(entry, failures, stopDeadline ?? resolveDeadline(), exporterReady);
+      await stopService(
+        entry,
+        stopReason,
+        failures,
+        stopDeadline ?? resolveDeadline(),
+        exporterReady,
+      );
     }
   };
   let reloadTail = Promise.resolve();
@@ -410,6 +419,7 @@ async function startPreparedPluginServices({
         try {
           await stopServices(
             selected.toReversed(),
+            "reload",
             true,
             undefined,
             () => Date.now() + PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS,
@@ -453,7 +463,7 @@ async function startPreparedPluginServices({
       const deadline = strict ? options.deadlineAtMs : undefined;
       return Promise.resolve().then(async () => {
         const failures: unknown[] = [];
-        await stopServices(selected.toReversed(), strict, failures, deadline);
+        await stopServices(selected.toReversed(), "shutdown", strict, failures, deadline);
         if (strict && failures.length > 0) {
           throw new AggregateError(failures, "plugin service replacement cleanup failed");
         }
@@ -578,7 +588,10 @@ async function startPreparedPluginServices({
             runServiceCleanup(() => {
               try {
                 const result = withPluginServiceScheduler(scheduling.scheduler, () =>
-                  service.stop?.(serviceContext),
+                  service.stop?.({
+                    ...serviceContext,
+                    stopReason: ownedService.stopReason ?? "shutdown",
+                  }),
                 );
                 const completion = resolvePluginReturnPromise(result);
                 if (!completion) {
@@ -662,7 +675,7 @@ async function startPreparedPluginServices({
         ownedService.lease.revoke();
         // Detached cleanup already logs failures; its original entry.stopping
         // rejection remains owned by every later awaited stop.
-        void stopService(ownedService).catch(() => {});
+        void stopService(ownedService, "shutdown").catch(() => {});
         return false;
       }
       // A failed start can already own resources; revoke events only after its cleanup runs.
@@ -670,6 +683,7 @@ async function startPreparedPluginServices({
       // stop here would wedge plugin reload/startup forever.
       await stopService(
         ownedService,
+        "shutdown",
         failures,
         Date.now() + PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS,
       );

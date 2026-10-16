@@ -17,6 +17,7 @@ export type OwnedPluginService = {
   startupConsumer?: PluginInstanceConsumer;
   stopping?: Promise<unknown>;
   reloading?: Promise<void>;
+  stopReason?: "reload" | "shutdown";
   cleaned: boolean;
   cleanupErrors: unknown[];
   cleanupReporting?: Promise<unknown>;

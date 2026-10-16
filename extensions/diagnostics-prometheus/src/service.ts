@@ -12,6 +12,7 @@ import type {
   DiagnosticEventPayload,
   OpenClawPluginHttpRouteHandler,
   OpenClawPluginService,
+  OpenClawPluginServiceContext,
 } from "../api.js";
 import { isInternalDiagnosticEventMetadata, redactSensitiveText } from "../api.js";
 import { seconds, type LabelSet } from "./prometheus-format.js";
@@ -651,7 +652,7 @@ export function createDiagnosticsPrometheusExporter() {
         reason: "configured",
       });
     },
-    stop() {
+    stop(ctx?: OpenClawPluginServiceContext) {
       unsubscribeWork?.();
       unsubscribeWork = undefined;
       unsubscribe?.();
@@ -663,7 +664,9 @@ export function createDiagnosticsPrometheusExporter() {
         status: "dropped",
       });
       internalDiagnostics = undefined;
-      store.reset();
+      if (ctx?.stopReason !== "reload") {
+        store.reset();
+      }
     },
   } satisfies OpenClawPluginService;
 

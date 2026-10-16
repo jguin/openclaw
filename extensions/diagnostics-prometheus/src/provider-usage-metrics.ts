@@ -53,13 +53,17 @@ const PROVIDER_USAGE_GAUGE_NAMES = new Set([
   "openclaw_provider_usage_refresh_success",
 ]);
 
+function clearProviderUsageMetrics(store: PrometheusMetricStore): void {
+  for (const name of PROVIDER_USAGE_GAUGE_NAMES) {
+    store.clearGauges(name);
+  }
+}
+
 export function recordProviderUsageSnapshot(
   store: PrometheusMetricStore,
   snapshot: ProviderUsageMetricsSnapshot,
 ): void {
-  for (const name of PROVIDER_USAGE_GAUGE_NAMES) {
-    store.clearGauges(name);
-  }
+  clearProviderUsageMetrics(store);
   for (const provider of snapshot.providers) {
     const providerLabels = { provider: normalizeDiagnosticValue(provider.provider) };
     store.gauge(
@@ -137,6 +141,7 @@ export function createProviderUsageObserver(store: PrometheusMetricStore) {
       generation += 1;
       release?.();
       release = undefined;
+      clearProviderUsageMetrics(store);
     },
   };
 }

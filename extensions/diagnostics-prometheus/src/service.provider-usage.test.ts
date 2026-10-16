@@ -1,7 +1,11 @@
 import { expectDefined } from "@openclaw/normalization-core";
 import { describe, expect, it, vi } from "vitest";
 import { createDiagnosticsPrometheusExporter } from "./service.js";
-import type { TrustedExporterInternalDiagnostics } from "./service.test-helpers.js";
+import {
+  baseEvent,
+  trusted,
+  type TrustedExporterInternalDiagnostics,
+} from "./service.test-helpers.js";
 
 type ProviderUsageListener = (snapshot: {
   generation: number;
@@ -186,10 +190,13 @@ describe("diagnostics-prometheus provider usage", () => {
     await vi.waitFor(() => expect(unsubscribe).toHaveBeenCalledOnce());
   });
 
-  it("releases and reacquires provider usage across opt-in replacement", async () => {
+  it("preserves accumulated metrics across diagnostics replacement", async () => {
     const exporter = createDiagnosticsPrometheusExporter();
     const listeners: ProviderUsageListener[] = [];
     const releases = [vi.fn(), vi.fn()];
+    let diagnosticListener:
+      | Parameters<TrustedExporterInternalDiagnostics["onEvent"]>[0]
+      | undefined;
     const observeProviderUsage = vi.fn(async (listener: ProviderUsageListener) => {
       listeners.push(listener);
       return expectDefined(releases[listeners.length - 1], "provider usage release");
@@ -200,7 +207,10 @@ describe("diagnostics-prometheus provider usage", () => {
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
       internalDiagnostics: {
         emit: vi.fn(),
-        onEvent: () => vi.fn(),
+        onEvent: (listener) => {
+          diagnosticListener = listener;
+          return vi.fn();
+        },
         observeProviderUsage,
         reportExporterHealth: vi.fn(),
       } as TrustedExporterInternalDiagnostics,
@@ -217,25 +227,41 @@ describe("diagnostics-prometheus provider usage", () => {
       ],
     };
 
-    exporter.service.start(context(true, true));
+    const enabledContext = context(true, true);
+    exporter.service.start(enabledContext);
     expect(observeProviderUsage).toHaveBeenCalledOnce();
     expectDefined(listeners[0], "initial provider usage listener")(snapshot);
+    expectDefined(diagnosticListener, "diagnostics listener")(
+      { ...baseEvent(), type: "gateway.rpc", method: "models.list", phase: "received" },
+      trusted,
+      {},
+    );
     expect(exporter.render()).toContain("openclaw_provider_usage_used_ratio");
+    expect(exporter.render()).toContain(
+      'openclaw_gateway_rpc_requests_total{method="models.list"} 1',
+    );
 
-    exporter.service.stop?.();
-    exporter.service.start(context(true, false));
+    exporter.service.stop?.({ ...enabledContext, stopReason: "reload" });
+    const disabledContext = context(false, true);
+    exporter.service.start(disabledContext);
     await vi.waitFor(() => expect(releases[0]).toHaveBeenCalledOnce());
     expect(observeProviderUsage).toHaveBeenCalledOnce();
     expect(exporter.render()).not.toContain("openclaw_provider_usage_");
+    expect(exporter.render()).toContain(
+      'openclaw_gateway_rpc_requests_total{method="models.list"} 1',
+    );
 
     expectDefined(listeners[0], "retired provider usage listener")(snapshot);
     expect(exporter.render()).not.toContain("openclaw_provider_usage_");
 
-    exporter.service.stop?.();
+    exporter.service.stop?.({ ...disabledContext, stopReason: "reload" });
     exporter.service.start(context(true, true));
     expect(observeProviderUsage).toHaveBeenCalledTimes(2);
     expectDefined(listeners[1], "replacement provider usage listener")(snapshot);
     expect(exporter.render()).toContain("openclaw_provider_usage_used_ratio");
+    expect(exporter.render()).toContain(
+      'openclaw_gateway_rpc_requests_total{method="models.list"} 1',
+    );
 
     exporter.service.stop?.();
     await vi.waitFor(() => expect(releases[1]).toHaveBeenCalledOnce());
