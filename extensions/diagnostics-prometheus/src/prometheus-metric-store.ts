@@ -102,7 +102,11 @@ export function createPrometheusMetricStore() {
     counters.set(key, { help, name, prefix: `${name}${formatLabels(labels)} `, value });
   };
 
-  const clearGauges = (name: string) => {
+  const clearGauges = (name?: string) => {
+    if (name === undefined) {
+      gauges.clear();
+      return;
+    }
     for (const key of gauges.keys()) {
       if (key.startsWith(`${name}|`)) {
         gauges.delete(key);

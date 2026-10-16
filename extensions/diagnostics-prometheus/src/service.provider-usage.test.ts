@@ -236,23 +236,26 @@ describe("diagnostics-prometheus provider usage", () => {
       trusted,
       {},
     );
+    expectDefined(diagnosticListener, "diagnostics listener")(
+      { ...baseEvent(), type: "queue.lane.enqueue", lane: "main", queueSize: 7 },
+      trusted,
+      {},
+    );
     expect(exporter.render()).toContain("openclaw_provider_usage_used_ratio");
     expect(exporter.render()).toContain(
       'openclaw_gateway_rpc_requests_total{method="models.list"} 1',
     );
+    expect(exporter.render()).toContain('openclaw_queue_lane_size{lane="main"} 7');
 
     exporter.service.stop?.({ ...enabledContext, stopReason: "reload" });
     const disabledContext = context(false, true);
     exporter.service.start(disabledContext);
     await vi.waitFor(() => expect(releases[0]).toHaveBeenCalledOnce());
     expect(observeProviderUsage).toHaveBeenCalledOnce();
-    expect(exporter.render()).not.toContain("openclaw_provider_usage_");
-    expect(exporter.render()).toContain(
-      'openclaw_gateway_rpc_requests_total{method="models.list"} 1',
-    );
+    expect(exporter.render()).toBe("");
 
     expectDefined(listeners[0], "retired provider usage listener")(snapshot);
-    expect(exporter.render()).not.toContain("openclaw_provider_usage_");
+    expect(exporter.render()).toBe("");
 
     exporter.service.stop?.({ ...disabledContext, stopReason: "reload" });
     exporter.service.start(context(true, true));
@@ -262,6 +265,7 @@ describe("diagnostics-prometheus provider usage", () => {
     expect(exporter.render()).toContain(
       'openclaw_gateway_rpc_requests_total{method="models.list"} 1',
     );
+    expect(exporter.render()).not.toContain("openclaw_queue_lane_size");
 
     exporter.service.stop?.();
     await vi.waitFor(() => expect(releases[1]).toHaveBeenCalledOnce());
