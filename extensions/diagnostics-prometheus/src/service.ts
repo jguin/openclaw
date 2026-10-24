@@ -21,11 +21,17 @@ import {
   createPrometheusMetricStore,
   type PrometheusMetricStore,
 } from "./prometheus-metric-store.js";
+import {
+  createProviderUsageObserver,
+  type PrometheusExporterHealthUpdate,
+  type TrustedExporterDiagnosticsBridge,
+} from "./provider-usage-metrics.js";
 import { recordGatewayWsEvent } from "./service-gateway-ws.js";
 import { recordMemorySample } from "./service-memory.js";
 import { recordModelUsage } from "./service-model-usage.js";
 import { recordOperationTimingEvent, reserveMainGcHistograms } from "./service-operation-timing.js";
 import { recordSessionRetention } from "./service-retention.js";
+import { isProviderUsagePollingEnabled } from "./service-runtime.js";
 import {
   createGatewayWorkMetricsRecorder,
   recordSessionDiagnosticEvent,
@@ -557,7 +563,7 @@ function hasMetricsReadScope(): boolean {
   return METRICS_READ_IMPLYING_SCOPES.some((scope) => scopes.includes(scope));
 }
 
-function createMetricsHandler(store: PrometheusMetricStore): OpenClawPluginHttpRouteHandler {
+function createMetricsHandler(render: () => string): OpenClawPluginHttpRouteHandler {
   return (req: IncomingMessage, res: ServerResponse) => {
     // Fail closed before any metric rendering, including for HEAD probes that would
     // otherwise disclose the document size to an unauthorized caller.
@@ -576,7 +582,7 @@ function createMetricsHandler(store: PrometheusMetricStore): OpenClawPluginHttpR
       return true;
     }
 
-    const body = store.render();
+    const body = render();
     res.statusCode = 200;
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("Content-Type", "text/plain; version=0.0.4; charset=utf-8");
@@ -592,17 +598,6 @@ function createMetricsHandler(store: PrometheusMetricStore): OpenClawPluginHttpR
   };
 }
 
-type PrometheusExporterHealthUpdate = {
-  signal: "metrics";
-  transport: "prometheus-scrape";
-  status: "started" | "dropped";
-  reason?: "configured";
-};
-type TrustedExporterDiagnosticsBridge = {
-  emit: NonNullable<OpenClawPluginServiceContext["internalDiagnostics"]>["emit"];
-  reportExporterHealth?: (update: PrometheusExporterHealthUpdate) => void;
-};
-
 export function createDiagnosticsPrometheusExporter() {
   let logger: OpenClawPluginServiceContext["logger"] | undefined;
   const store = createPrometheusMetricStore((family) => {
@@ -610,10 +605,12 @@ export function createDiagnosticsPrometheusExporter() {
       `diagnostics-prometheus: series budget reached for ${family}; new label sets are being dropped. See openclaw_prometheus_family_series_dropped_total.`,
     );
   });
+  let serving = false;
   let unsubscribe: (() => void) | undefined;
   let unsubscribeWork: (() => void) | undefined;
   let internalDiagnostics: TrustedExporterDiagnosticsBridge | undefined;
-  const reportExporterStatus = (update: PrometheusExporterHealthUpdate) => {
+  const providerUsageObserver = createProviderUsageObserver(store);
+  const reportExporterHealth = (update: PrometheusExporterHealthUpdate) => {
     try {
       internalDiagnostics?.reportExporterHealth?.(update);
     } catch {
@@ -629,17 +626,27 @@ export function createDiagnosticsPrometheusExporter() {
 
   const service = {
     id: "diagnostics-prometheus",
+    reload: {
+      configPrefixes: [
+        "diagnostics.enabled",
+        "plugins.entries.diagnostics-prometheus.config.providerUsage",
+      ],
+    },
     start(ctx) {
+      if (!isDiagnosticsEnabled(ctx.config)) {
+        serving = false;
+        return;
+      }
       const subscribe = ctx.internalDiagnostics?.onEvent;
       if (!subscribe) {
+        serving = false;
         ctx.logger.error("diagnostics-prometheus: internal diagnostics capability unavailable");
         return;
       }
       logger = ctx.logger;
       reserveMainGcHistograms(store);
-      const identity = isDiagnosticsEnabled(ctx.config)
-        ? ctx.internalDiagnostics?.getRuntimeIdentity?.()
-        : undefined;
+      serving = true;
+      const identity = ctx.internalDiagnostics?.getRuntimeIdentity?.();
       if (identity) {
         // Reserve one sample before event traffic; runtime identity must survive saturation.
         store.gauge(
@@ -669,32 +676,49 @@ export function createDiagnosticsPrometheusExporter() {
         { exclude: ["log.record"], includePromptStats: false },
         { includePrivateData: false },
       );
-      internalDiagnostics = ctx.internalDiagnostics;
-      reportExporterStatus({
+      internalDiagnostics = ctx.internalDiagnostics as unknown as TrustedExporterDiagnosticsBridge;
+      providerUsageObserver.start({
+        bridge: internalDiagnostics,
+        enabled: isProviderUsagePollingEnabled(ctx.config),
+        onError: (err) =>
+          ctx.logger.error(
+            `diagnostics-prometheus: provider usage handler failed: ${safeErrorMessage(err)}`,
+          ),
+      });
+      reportExporterHealth({
         signal: "metrics",
         transport: "prometheus-scrape",
         status: "started",
         reason: "configured",
       });
     },
-    stop() {
+    stop(ctx?: OpenClawPluginServiceContext) {
+      serving = false;
       unsubscribeWork?.();
       unsubscribeWork = undefined;
       unsubscribe?.();
       unsubscribe = undefined;
-      reportExporterStatus({
+      providerUsageObserver.stop();
+      reportExporterHealth({
         signal: "metrics",
         transport: "prometheus-scrape",
         status: "dropped",
       });
       internalDiagnostics = undefined;
-      store.reset();
+      if (ctx?.stopReason === "reload") {
+        store.clearGauges();
+      } else {
+        store.reset();
+      }
       logger = undefined;
     },
   } satisfies OpenClawPluginService;
 
+  const render = () => (serving ? store.render() : "");
+
   return {
-    handler: createMetricsHandler(store),
+    handler: createMetricsHandler(render),
+    render,
     service,
   };
 }
