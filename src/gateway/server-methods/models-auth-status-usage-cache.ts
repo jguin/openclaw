@@ -271,7 +271,7 @@ export function clearModelAuthStatusUsageCache(): void {
   usageRefreshByAgentId.clear();
   usageMetricsGeneration += 1;
   for (const [agentId, projections] of usageMetricsByAgentId) {
-    for (const selectionKey of [...projections.keys()]) {
+    for (const selectionKey of projections.keys()) {
       projections.delete(selectionKey);
       publishUsageMetrics(agentId, selectionKey);
     }
