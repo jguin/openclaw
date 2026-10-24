@@ -563,7 +563,7 @@ function hasMetricsReadScope(): boolean {
   return METRICS_READ_IMPLYING_SCOPES.some((scope) => scopes.includes(scope));
 }
 
-function createMetricsHandler(render: () => string): OpenClawPluginHttpRouteHandler {
+function createMetricsHandler(render: () => Buffer): OpenClawPluginHttpRouteHandler {
   return (req: IncomingMessage, res: ServerResponse) => {
     // Fail closed before any metric rendering, including for HEAD probes that would
     // otherwise disclose the document size to an unauthorized caller.
@@ -590,7 +590,13 @@ function createMetricsHandler(render: () => string): OpenClawPluginHttpRouteHand
     res.flushHeaders();
     res.end(req.method === "HEAD" ? undefined : body, (error?: Error | null) => {
       // Only the completed response owns this backing store; prefixes stay in the metric store.
-      if (!error) {
+      // Skip pooled or zero-length buffers; transfer() would detach memory the process still uses.
+      if (
+        !error &&
+        body.byteLength > 0 &&
+        body.byteOffset === 0 &&
+        body.buffer.byteLength === body.byteLength
+      ) {
         body.buffer.transfer(0);
       }
     });
@@ -714,7 +720,7 @@ export function createDiagnosticsPrometheusExporter() {
     },
   } satisfies OpenClawPluginService;
 
-  const render = () => (serving ? store.render() : "");
+  const render = () => (serving ? store.render() : Buffer.alloc(0));
 
   return {
     handler: createMetricsHandler(render),
