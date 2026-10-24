@@ -32,14 +32,11 @@ import type {
   PluginServicesOwner,
   StartPluginServicesParams,
 } from "./service-lifecycle.types.js";
-import {
-  PluginServiceStopPendingError,
-  PluginServiceTimeoutError,
-} from "./service-stop-errors.js";
 import { createPluginServiceNodeInvoker } from "./service-nodes.js";
 import { withPluginServiceScheduler } from "./service-scheduler-binding.js";
 import { createPluginServiceSchedulerRunner } from "./service-scheduler-context.js";
 import { createPluginServiceScheduler } from "./service-scheduler.js";
+import { PluginServiceStopPendingError, PluginServiceTimeoutError } from "./service-stop-errors.js";
 import { encodeStartupTraceSegment } from "./startup-trace-segment.js";
 import type { OpenClawPluginServiceContextV2 } from "./types.js";
 
