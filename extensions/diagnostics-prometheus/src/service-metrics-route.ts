@@ -46,13 +46,15 @@ export function createMetricsHandler(render: () => Buffer): OpenClawPluginHttpRo
     res.end(req.method === "HEAD" ? undefined : body, (error?: Error | null) => {
       // Only the completed response owns this backing store; prefixes stay in the metric store.
       // Skip pooled or zero-length buffers; transfer() would detach memory the process still uses.
+      const backing = body.buffer;
       if (
         !error &&
         body.byteLength > 0 &&
         body.byteOffset === 0 &&
-        body.buffer.byteLength === body.byteLength
+        backing instanceof ArrayBuffer &&
+        backing.byteLength === body.byteLength
       ) {
-        body.buffer.transfer(0);
+        backing.transfer(0);
       }
     });
     return true;

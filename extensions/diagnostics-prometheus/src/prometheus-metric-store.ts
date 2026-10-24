@@ -237,7 +237,9 @@ export function createPrometheusMetricStore(
   const clearGauges = (name?: PrometheusMetricName): void => {
     if (name === undefined) {
       for (const family of new Set(gauges.samples.map((sample) => sample.name))) {
-        clearGauges(family);
+        if (Object.hasOwn(PROMETHEUS_FAMILY_RESERVES, family)) {
+          clearGauges(family as PrometheusMetricName);
+        }
       }
       return;
     }

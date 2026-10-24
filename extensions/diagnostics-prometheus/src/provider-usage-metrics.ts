@@ -1,4 +1,5 @@
 import { normalizeDiagnosticValue } from "openclaw/plugin-sdk/diagnostic-runtime";
+import type { PrometheusMetricName } from "./prometheus-family-budget.js";
 import type { PrometheusMetricStore } from "./prometheus-metric-store.js";
 
 export type ProviderUsageMetricsSnapshot = Readonly<{
@@ -45,13 +46,13 @@ export type TrustedExporterDiagnosticsBridge = {
   ) => Promise<() => void>;
 };
 
-const PROVIDER_USAGE_GAUGE_NAMES = new Set([
+const PROVIDER_USAGE_GAUGE_NAMES = [
   "openclaw_provider_usage_used_ratio",
   "openclaw_provider_usage_reset_timestamp_seconds",
   "openclaw_provider_usage_last_success_timestamp_seconds",
   "openclaw_provider_usage_last_attempt_timestamp_seconds",
   "openclaw_provider_usage_refresh_success",
-]);
+] as const satisfies readonly PrometheusMetricName[];
 
 function clearProviderUsageMetrics(store: PrometheusMetricStore): void {
   for (const name of PROVIDER_USAGE_GAUGE_NAMES) {
