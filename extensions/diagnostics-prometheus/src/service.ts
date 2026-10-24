@@ -623,6 +623,7 @@ export function createDiagnosticsPrometheusExporter() {
         { exclude: ["log.record"], includePromptStats: false },
         { includePrivateData: false },
       );
+      // SAFETY: Gateway startup supplies the internal diagnostics bridge; the observer only reads its usage methods.
       internalDiagnostics = ctx.internalDiagnostics as unknown as TrustedExporterDiagnosticsBridge;
       providerUsageObserver.start({
         bridge: internalDiagnostics,
