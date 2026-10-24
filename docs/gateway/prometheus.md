@@ -760,9 +760,12 @@ Provider allowance metrics use the same selected credential as the unscoped
 email, profile IDs, credential IDs, plan names, or billing details.
 
 The exporter acquires refresh interest from the Gateway-owned provider-usage
-cache. Provider network requests run on that cache's bounded background schedule;
-serving `/api/diagnostics/prometheus` only renders retained facts and never calls
-a provider. A successful refresh replaces the provider's allowance windows. A
+cache only when `plugins.entries.diagnostics-prometheus.config.providerUsage.enabled`
+is `true`. The default is `false`. Enabling it causes the default-agent cache to
+send bounded background provider requests; a saved `true` is attached on Gateway
+startup and on exporter reload. Provider network requests run on that cache's
+bounded background schedule; serving `/api/diagnostics/prometheus` only renders
+retained facts and never calls a provider. A successful refresh replaces the provider's allowance windows. A
 transient failure keeps the last successful windows, advances
 `openclaw_provider_usage_last_attempt_timestamp_seconds`, and sets
 `openclaw_provider_usage_refresh_success` to `0`.

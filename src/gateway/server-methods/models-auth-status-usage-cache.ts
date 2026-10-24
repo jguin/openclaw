@@ -61,15 +61,17 @@ function agentEntries<T>(byAgentId: Map<string, Map<string, T>>, agentId: string
   return entries;
 }
 
-const usageMetricsByAgentId = new Map<
-  string,
-  {
-    generation: number;
-    selectionKey: string;
-    providers: Map<string, ProviderUsageMetricsProvider>;
-  }
->();
-const usageMetricsListenersByAgentId = new Map<string, Set<ProviderUsageMetricsListener>>();
+type UsageMetricsProjection = {
+  generation: number;
+  selectionKey: string;
+  providers: Map<string, ProviderUsageMetricsProvider>;
+};
+type UsageMetricsListenerBinding = {
+  listener: ProviderUsageMetricsListener;
+  selectionKey: string;
+};
+const usageMetricsByAgentId = new Map<string, Map<string, UsageMetricsProjection>>();
+const usageMetricsListenersByAgentId = new Map<string, Set<UsageMetricsListenerBinding>>();
 let cacheGeneration = 0;
 let usageMetricsGeneration = 0;
 
@@ -153,8 +155,12 @@ function providerUsageRefreshOutcome(
   return "unknown";
 }
 
-function usageMetricsSnapshot(agentId: string): ProviderUsageMetricsSnapshot {
-  const state = usageMetricsByAgentId.get(agentId);
+function usageMetricsSelectionKey(credentialKey: string, providerKey: string): string {
+  return `${credentialKey}\0${providerKey}`;
+}
+
+function usageMetricsSnapshot(agentId: string, selectionKey: string): ProviderUsageMetricsSnapshot {
+  const state = usageMetricsByAgentId.get(agentId)?.get(selectionKey);
   return {
     generation: state?.generation ?? usageMetricsGeneration,
     providers: [...(state?.providers.values() ?? [])].toSorted((left, right) =>
@@ -163,15 +169,18 @@ function usageMetricsSnapshot(agentId: string): ProviderUsageMetricsSnapshot {
   };
 }
 
-function publishUsageMetrics(agentId: string): void {
+function publishUsageMetrics(agentId: string, selectionKey: string): void {
   const listeners = usageMetricsListenersByAgentId.get(agentId);
   if (!listeners || listeners.size === 0) {
     return;
   }
-  const snapshot = usageMetricsSnapshot(agentId);
-  for (const listener of listeners) {
+  const snapshot = usageMetricsSnapshot(agentId, selectionKey);
+  for (const binding of listeners) {
+    if (binding.selectionKey !== selectionKey) {
+      continue;
+    }
     try {
-      listener(snapshot);
+      binding.listener(snapshot);
     } catch (err) {
       log.debug(`provider usage metrics listener failed: ${formatForLog(err)}`);
     }
@@ -183,18 +192,19 @@ function reconcileUsageMetricsSelection(params: {
   credentialKey: string;
   providerKey: string;
 }): void {
-  const selectionKey = `${params.credentialKey}\0${params.providerKey}`;
-  if (usageMetricsByAgentId.get(params.agentId)?.selectionKey === selectionKey) {
+  const selectionKey = usageMetricsSelectionKey(params.credentialKey, params.providerKey);
+  const projections = agentEntries(usageMetricsByAgentId, params.agentId);
+  if (projections.has(selectionKey)) {
     return;
   }
   usageMetricsGeneration += 1;
-  usageMetricsByAgentId.set(params.agentId, {
+  projections.set(selectionKey, {
     generation: usageMetricsGeneration,
     selectionKey,
     providers: new Map(),
   });
-  // Selection changes withdraw prior allowance series until the new owner succeeds.
-  publishUsageMetrics(params.agentId);
+  // A new provider-set identity starts empty. Other sets for this agent stay intact.
+  publishUsageMetrics(params.agentId, selectionKey);
 }
 
 function recordProviderUsageMetricsRefresh(params: {
@@ -206,8 +216,9 @@ function recordProviderUsageMetricsRefresh(params: {
   providerKey: string;
   summary?: UsageSummary;
 }): void {
-  const state = usageMetricsByAgentId.get(params.agentId);
-  if (!state || state.selectionKey !== `${params.credentialKey}\0${params.providerKey}`) {
+  const selectionKey = usageMetricsSelectionKey(params.credentialKey, params.providerKey);
+  const state = usageMetricsByAgentId.get(params.agentId)?.get(selectionKey);
+  if (!state) {
     return;
   }
   const snapshots = new Map(
@@ -251,7 +262,7 @@ function recordProviderUsageMetricsRefresh(params: {
       refreshOutcome: outcome,
     });
   }
-  publishUsageMetrics(params.agentId);
+  publishUsageMetrics(params.agentId, selectionKey);
 }
 
 export function clearModelAuthStatusUsageCache(): void {
@@ -259,9 +270,12 @@ export function clearModelAuthStatusUsageCache(): void {
   usageCacheByAgentId.clear();
   usageRefreshByAgentId.clear();
   usageMetricsGeneration += 1;
-  for (const [agentId] of usageMetricsByAgentId) {
+  for (const [agentId, projections] of usageMetricsByAgentId) {
+    for (const selectionKey of [...projections.keys()]) {
+      projections.delete(selectionKey);
+      publishUsageMetrics(agentId, selectionKey);
+    }
     usageMetricsByAgentId.delete(agentId);
-    publishUsageMetrics(agentId);
   }
   clearProviderUsageRuntimeSnapshot();
 }
@@ -562,7 +576,11 @@ export function observeProviderUsageMetrics(params: {
       return;
     }
     const listeners = usageMetricsListenersByAgentId.get(targetAgentId);
-    listeners?.delete(params.listener);
+    for (const binding of listeners ?? []) {
+      if (binding.listener === params.listener) {
+        listeners?.delete(binding);
+      }
+    }
     if (listeners?.size === 0) {
       usageMetricsListenersByAgentId.delete(targetAgentId);
     }
@@ -601,8 +619,14 @@ export function observeProviderUsageMetrics(params: {
         listeners = new Set();
         usageMetricsListenersByAgentId.set(agentId, listeners);
       }
-      listeners.add(params.listener);
-      publishUsageMetrics(agentId);
+      const selectionKey = `${refreshParams.credentialKey}\0${refreshParams.providerKey}`;
+      for (const binding of listeners) {
+        if (binding.listener === params.listener) {
+          listeners.delete(binding);
+        }
+      }
+      listeners.add({ listener: params.listener, selectionKey });
+      publishUsageMetrics(agentId, selectionKey);
       await scheduleProviderUsageRefresh({
         ...refreshParams,
         signal: authority.signal,
