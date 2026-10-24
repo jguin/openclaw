@@ -31,6 +31,10 @@ import type {
   PluginServicesOwner,
   StartPluginServicesParams,
 } from "./service-lifecycle.types.js";
+import {
+  PluginServiceStopPendingError,
+  PluginServiceTimeoutError,
+} from "./service-stop-errors.js";
 import { createPluginServiceNodeInvoker } from "./service-nodes.js";
 import { withPluginServiceScheduler } from "./service-scheduler-binding.js";
 import { createPluginServiceSchedulerRunner } from "./service-scheduler-context.js";
@@ -42,35 +46,8 @@ export type { PluginServicesHandle } from "./service-lifecycle.types.js";
 
 const log = createSubsystemLogger("plugins");
 export const PLUGIN_SERVICE_REPLACEMENT_STOP_TIMEOUT_MS = 5_000;
+export { getPluginServiceCleanupSettlement } from "./service-stop-errors.js";
 
-class PluginServiceTimeoutError extends Error {}
-class PluginServiceStopPendingError extends Error {
-  constructor(
-    message: string,
-    readonly settled: Promise<void>,
-    cause: unknown,
-  ) {
-    super(message, { cause });
-    void settled.catch(() => {});
-  }
-}
-/** Observe only an issued service stop; mixed or permanent failures remain barriers. */
-export function getPluginServiceCleanupSettlement(
-  error: unknown,
-): { error: AggregateError; settled: Promise<void> } | undefined {
-  if (
-    !(error instanceof AggregateError) ||
-    error.errors.length === 0 ||
-    !error.errors.every((failure) => failure instanceof PluginServiceStopPendingError)
-  ) {
-    return undefined;
-  }
-  const settled = Promise.all(
-    error.errors.map((failure: PluginServiceStopPendingError) => failure.settled),
-  ).then(() => {});
-  void settled.catch(() => {});
-  return { error, settled };
-}
 const serviceOwners = new WeakMap<PluginServicesHandle, PluginServicesOwner>();
 function preparePluginServicesOwner(
   registry: PluginRegistry,
