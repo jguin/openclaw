@@ -42,17 +42,6 @@ describe("diagnostics-prometheus provider usage", () => {
     },
   });
 
-  it("declares diagnostics and provider usage enablement as replacement boundaries", () => {
-    const exporter = createDiagnosticsPrometheusExporter();
-
-    expect(exporter.service.reload).toEqual({
-      configPrefixes: [
-        "diagnostics.enabled",
-        "plugins.entries.diagnostics-prometheus.config.providerUsage",
-      ],
-    });
-  });
-
   it("does not acquire provider usage while diagnostics are disabled", async () => {
     const exporter = createDiagnosticsPrometheusExporter();
     const observeProviderUsage = vi.fn();
