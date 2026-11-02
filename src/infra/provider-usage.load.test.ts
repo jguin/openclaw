@@ -24,6 +24,13 @@ const codex: ProviderUsageSnapshot = {
 };
 const load = (options: Parameters<typeof loadProviderUsageSummary>[0]) =>
   loadProviderUsageSummary({ config: {}, env: {}, ...options });
+const loadWithAuth = async (
+  auth: NonNullable<NonNullable<Parameters<typeof loadProviderUsageSummary>[0]>["auth"]>,
+  fetch: ReturnType<typeof createProviderUsageFetch>,
+) => {
+  vi.spyOn(globalThis, "fetch").mockImplementation(fetch);
+  return await load({ auth, now: usageNow });
+};
 const unusedFetch = () =>
   createProviderUsageFetch(async () => {
     throw new Error("legacy fetch should not run");
@@ -157,7 +164,128 @@ describe("provider-usage.load", () => {
     },
   );
 
-  it("returns completed non-ignored siblings at the deadline while retaining unfinished work", async () => {
+  it("does not dispatch usage after auth completes beyond the deadline", async () => {
+    vi.useFakeTimers();
+    const scope = new AsyncWorkScope();
+    const auth = createDeferredCore<{ token: string }>();
+    resolveProviderUsageAuthWithPluginMock.mockReturnValue(auth.promise);
+    const pending = scope.track(() =>
+      load({
+        providers: ["anthropic"],
+        env: { ANTHROPIC_API_KEY: "fixture-token" },
+        timeoutMs: 1,
+      }),
+    );
+    try {
+      await vi.advanceTimersByTimeAsync(1);
+      expect((await pending).providers[0]?.error).toBe("Timeout");
+      expect(resolveProviderUsageAuthWithPluginMock).toHaveBeenCalledOnce();
+      auth.resolve({ token: "fixture-token" });
+      await scope.drain();
+      expect(resolveProviderUsageSnapshotWithPluginMock).not.toHaveBeenCalled();
+    } finally {
+      auth.resolve({ token: "fixture-token" });
+      await pending;
+      await scope.drain();
+    }
+  });
+
+  it("does not dispatch usage after caller authority is revoked during authentication", async () => {
+    const scope = new AsyncWorkScope();
+    const auth = createDeferredCore<{ token: string }>();
+    const authority = new AbortController();
+    resolveProviderUsageAuthWithPluginMock.mockReturnValue(auth.promise);
+    const pending = scope.track(() =>
+      load({
+        providers: ["anthropic"],
+        env: { ANTHROPIC_API_KEY: "fixture-token" },
+        signal: authority.signal,
+      }),
+    );
+    try {
+      await vi.waitFor(() => expect(resolveProviderUsageAuthWithPluginMock).toHaveBeenCalledOnce());
+      authority.abort(new DOMException("Observer released", "AbortError"));
+      auth.resolve({ token: "fixture-token" });
+      await scope.drain();
+      expect(resolveProviderUsageSnapshotWithPluginMock).not.toHaveBeenCalled();
+      expect((await pending).providers[0]?.error).toBe("Observer released");
+    } finally {
+      auth.resolve({ token: "fixture-token" });
+      await pending;
+      await scope.drain();
+    }
+  });
+
+  it("returns empty provider list when auth resolves to none", async () => {
+    const summary = await loadWithAuth([], unusedFetch());
+    expect(summary).toEqual({ updatedAt: usageNow, providers: [] });
+  });
+
+  it("returns unsupported provider snapshots for unknown provider ids", async () => {
+    const summary = await loadWithAuth(
+      [{ provider: "unsupported-provider", token: "token-u" }],
+      unusedFetch(),
+    );
+    expect(summary.providers).toHaveLength(1);
+    expect(summary.providers[0]?.error).toBe("Unsupported provider");
+  });
+
+  it("filters errors that are marked as ignored", async () => {
+    resolveProviderUsageSnapshotWithPluginMock.mockResolvedValueOnce({
+      provider: "anthropic",
+      displayName: "Claude",
+      windows: [],
+      error: "HTTP 500",
+    });
+    const mockFetch = createProviderUsageFetch(async () => {
+      throw new Error("legacy fetch should not run");
+    });
+    ignoredErrors.add("HTTP 500");
+    try {
+      const summary = await loadWithAuth([{ provider: "anthropic", token: "token-a" }], mockFetch);
+      expect(summary.providers).toStrictEqual([]);
+    } finally {
+      ignoredErrors.delete("HTTP 500");
+    }
+  });
+
+  it("keeps window and balance-only snapshots with injected auth", async () => {
+    const snapshots: ProviderUsageSnapshot[] = [
+      { provider: "anthropic", displayName: "Claude", windows: [{ label: "5h", usedPercent: 20 }] },
+      { provider: "deepseek", displayName: "DeepSeek", windows: [], summary: "Balance ¥42.50" },
+    ];
+    resolveProviderUsageSnapshotWithPluginMock.mockImplementation(
+      async ({ provider }) => snapshots.find((snapshot) => snapshot.provider === provider) ?? null,
+    );
+    const mockFetch = createProviderUsageFetch(async () => {
+      throw new Error("legacy fetch should not run");
+    });
+
+    const summary = await loadWithAuth(
+      [
+        { provider: "anthropic", token: "token-a" },
+        { provider: "deepseek", token: "token-d" },
+      ],
+      mockFetch,
+    );
+
+    expect(summary.providers).toEqual([
+      {
+        provider: "anthropic",
+        displayName: "Claude",
+        windows: [{ label: "5h", usedPercent: 20 }],
+      },
+      {
+        provider: "deepseek",
+        displayName: "DeepSeek",
+        windows: [],
+        summary: "Balance ¥42.50",
+      },
+    ]);
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("returns live siblings at the deadline while retaining the unfinished provider", async () => {
     vi.useFakeTimers();
     const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(unusedFetch());
     const scope = new AsyncWorkScope();
